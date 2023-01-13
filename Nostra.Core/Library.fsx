@@ -41,6 +41,11 @@ module Event =
         content: string
     }
 
+    let toHex (bytes:byte[]) =
+       bytes
+       |> Array.map (fun x -> sprintf "%02x" x)
+       |> String.concat ""
+    
     let createEvent (pubkey: ECXOnlyPubKey) kind tags content =
         {
             pubkey = pubkey.ToBytes() |> toHex;
@@ -63,11 +68,6 @@ module Event =
         event
         |> toJsonArray
         |> serialize
-
-    let toHex (bytes:byte[]) =
-        bytes
-        |> Array.map (fun x -> sprintf "%02x" x)
-        |> String.concat ""
 
     let getEventId (event: TUnsignedEvent) =
         event
