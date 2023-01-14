@@ -10,7 +10,7 @@ NOTE: This is a work in progress!
 ### Generate a new key pair:
 
 ```
-$ dotnet fsi --exec Library.fsx genkey
+$ dotnet fsi nostracli.fsx genkey
 
 secret: 65efca3c243e4132afbfc7e30fbc41d8d3698d26d11d816bc24a7787aa57f0dc
 pubkey: dc04a357c5ef17dd9ca245b7fa24842fc227a5b86a57f5d6a36a8d4443c21014
@@ -19,7 +19,7 @@ pubkey: dc04a357c5ef17dd9ca245b7fa24842fc227a5b86a57f5d6a36a8d4443c21014
 ### Listen for all the notes 
 
 ```
-$ dotnet fsi --exec Library.fsx listen --relay=wss://nostr-pub.wellorder.net
+$ dotnet fsi nostracli.fsx listen --relay=wss://nostr-pub.wellorder.net
 
 ---------------------------------------------------------------
 Kind: Text  - Author: 668ceee55475f595ec0e8ef44c64bf9da8d9dd6008ac54dcd24b2501930b960e
@@ -51,7 +51,7 @@ I think you need your own domain and a webserver that handles the requests. It's
 ### Send Encrypted messages
 
 ```
-$ dotnet fsi --exec Library.fsx sendmsg \
+$ dotnet fsi nostracli.fsx sendmsg \
    --to=dc04a357c5ef17dd9ca245b7fa24842fc227a5b86a57f5d6a36a8d4443c21014 \
    --secret=65efca3c243e4132afbfc7e30fbc41d8d3698d26d11d816bc24a7787aa57f0dc \
    --relay=wss://nostr-pub.wellorder.net \
