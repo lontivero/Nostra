@@ -1,6 +1,7 @@
 ﻿#r "nuget:NBitcoin.Secp256k1"
 #r "nuget:Chiron"
-#load "Library.fs"
+#load "Event.fs"
+#load "Client.fs"
 
 #nowarn "2303" // this bug is fixed now but not released yet
 
@@ -47,24 +48,26 @@ match switchs with
     0
 | ("listen", _)::rest ->
     let args = Map.ofList rest
+    
+    let printEvent (event, valid) =
+        let (XOnlyPubKey pubKey) = event.PubKey
+        let mark = if valid then "!" else "???"
+        Console.WriteLine "---------------------------------------------------------------"
+        Console.WriteLine $"{mark} Kind: {event.Kind}  - Author: {pubKey.ToBytes() |> Utils.toHex}"
+        Console.WriteLine (event.Content)
+
     async {
         let ws = new ClientWebSocket()
 
         // "wss://nostr-pub.wellorder.net"
         do! ws.ConnectAsync (Uri (args["relay"]), CancellationToken.None) |> Async.AwaitTask
-        let send = Client.sender(ws)
-         
-        Client.CMSubscribe ("all", [Query.AllNotes (DateTime.UtcNow.AddDays(-1))])
-        |> send.Post
+        let pushToRelay = Client.run (ws : WebSocket) (Client.sender ()) 
+        Client.CMSubscribe ("all", [Client.Query.AllNotes (DateTime.UtcNow.AddDays(-1))])
+        |> pushToRelay
+
+        let receiveLoop = Client.run (ws : WebSocket) (Client.startReceiving printEvent)
+        do! receiveLoop 
         
-        do! Client.startReceiving ws (
-            fun (event, valid) ->
-                let (XOnlyPubKey pubKey) = event.PubKey
-                let mark = if valid then "!" else "???"
-                Console.WriteLine "---------------------------------------------------------------"
-                Console.WriteLine $"{mark} Kind: {event.Kind}  - Author: {pubKey.ToBytes() |> Utils.toHex}"
-                Console.WriteLine (event.Content)
-            )
     } |> Async.RunSynchronously
     0
 | ("sendmsg", _)::rest ->
@@ -76,13 +79,14 @@ match switchs with
     let signedDm = sign secret dm 
 
     let ws = new ClientWebSocket()
+    
     ws.ConnectAsync (Uri (args["relay"]), CancellationToken.None)
     |> Async.AwaitTask
     |> Async.RunSynchronously
    
     let (EventId id) = signedDm.Id
-    let send = Client.sender(ws)
-    send.Post (Client.CMEvent signedDm)
+    let pushToRelay = Client.run (ws : WebSocket) (Client.sender ()) 
+    pushToRelay (Client.CMEvent signedDm)
     
     Console.WriteLine (id |> Utils.toHex)
     Task.Delay(1000) 
