@@ -83,14 +83,13 @@ module Event =
     let dateTimeToJson (dt : DateTime) =
         (dt - DateTime(1970, 1, 1))
         |> fun t -> t.TotalSeconds
-        |> decimal
+        |> (int64 >> decimal)
         |> Number
     
     let jsonToDateTime (json : Json)  = 
         match json with
         | Number seconds -> Value (TimeSpan.TicksPerSecond * (int64 seconds) + DateTime.UnixEpoch.Ticks |> DateTime)
         | _ -> Error "Incorrect date/time"
-    
 
     type Tag =
         | PubKeyFull of XOnlyPubKey * Uri_ * ProfileName
@@ -153,7 +152,7 @@ module Event =
         | Reaction = 7
 
        
-    type Event = {
+    type NostrEvent = {
         Id: EventId
         PubKey: XOnlyPubKey
         CreatedAt: DateTime
@@ -162,7 +161,7 @@ module Event =
         Content: string
         Signature: SchnorrSignature
         } with
-        static member ToJson (event: Event) = json {
+        static member ToJson (event: NostrEvent) = json {
             do! Json.write "id" event.Id
             do! Json.write "pubkey" event.PubKey
             do! Json.writeWith dateTimeToJson "created_at" event.CreatedAt
@@ -171,8 +170,7 @@ module Event =
             do! Json.write "content" event.Content
             do! Json.write "sig" event.Signature
         }
-        
-        static member FromJson(_: Event) = json { 
+        static member FromJson(_: NostrEvent) = json { 
             let! id = Json.read "id"
             let! pubkey = Json.read "pubkey"
             let! createdAt = Json.readWith jsonToDateTime "created_at"
@@ -205,7 +203,7 @@ module Event =
         Content = content
     }
 
-    let createNoteEvent (pubkey: XOnlyPubKey) content =
+    let createNoteEvent content =
         createEvent Kind.Text [] content
 
     let createReplyEvent (replyTo: EventId) (pubkey: XOnlyPubKey) content =
@@ -222,7 +220,7 @@ module Event =
         let iv, encryptedContent = Encryption.encrypt (sharedPubKey) content 
         createEvent Kind.Encrypted [PubKeyOnly(recipient)] $"{Convert.ToBase64String(encryptedContent)}?iv={Convert.ToBase64String(iv)}"
     
-    let decryptDirectMessage (secret: ECPrivKey) (event: Event) =
+    let decryptDirectMessage (secret: ECPrivKey) (event: NostrEvent) =
         let message = event.Content
         let parts =
             message.Split ("?iv=")
@@ -230,7 +228,7 @@ module Event =
         let sharedPubKey = sharedKey event.PubKey secret
         Encryption.decrypt sharedPubKey parts[1] parts[0]
 
-    let toUnsignedEvent (event: Event) = {
+    let toUnsignedEvent (event: NostrEvent) = {
         CreatedAt = event.CreatedAt
         Kind = event.Kind
         Tags = event.Tags
@@ -255,20 +253,20 @@ module Event =
         |> Encoding.UTF8.GetBytes
         |> SHA256.HashData
 
-    let sign (secret: ECPrivKey) (event: UnsignedEvent) : Event =
+    let sign (secret: ECPrivKey) (event: UnsignedEvent) : NostrEvent =
         let pubkey = secret |> Key.getPubKey |> XOnlyPubKey 
         let eventId = event |> getEventId pubkey
         { 
             Id = EventId eventId;
             PubKey = pubkey;
-            CreatedAt = DateTime.UtcNow;
+            CreatedAt = event.CreatedAt;
             Kind = event.Kind;
             Tags = event.Tags; 
             Content = event.Content; 
             Signature = secret.SignBIP340 eventId |> SchnorrSignature
         }
 
-    let verify (event : Event) =
+    let verify (event : NostrEvent) =
         let (EventId id, XOnlyPubKey pubkey, SchnorrSignature signature) = event.Id, event.PubKey, event.Signature
         let computedId = event |> toUnsignedEvent |> getEventId event.PubKey
         computedId = id && pubkey.SigVerifyBIP340(signature, id)

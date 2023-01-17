@@ -34,6 +34,7 @@ module CommandLine =
        |> List.ofSeq
 
 open System.Threading.Tasks
+open Nostra.Core.Client.Query
 
 let args = fsi.CommandLineArgs
 let switchs = CommandLine.parseArgs args
@@ -61,8 +62,10 @@ match switchs with
 
         // "wss://nostr-pub.wellorder.net"
         do! ws.ConnectAsync (Uri (args["relay"]), CancellationToken.None) |> Async.AwaitTask
-        let pushToRelay = Client.run (ws : WebSocket) (Client.sender ()) 
-        Client.CMSubscribe ("all", [Client.Query.AllNotes (DateTime.UtcNow.AddDays(-1))])
+        let pushToRelay = Client.run (ws : WebSocket) (Client.sender ())
+        let filter = toFilter (AllNotes (DateTime.UtcNow.AddDays(-1)))
+        
+        Client.Request.CMSubscribe ("all", [filter])
         |> pushToRelay
 
         let receiveLoop = Client.run (ws : WebSocket) (Client.startReceiving printEvent)
@@ -86,7 +89,7 @@ match switchs with
    
     let (EventId id) = signedDm.Id
     let pushToRelay = Client.run (ws : WebSocket) (Client.sender ()) 
-    pushToRelay (Client.CMEvent signedDm)
+    pushToRelay (Client.Request.CMEvent signedDm)
     
     Console.WriteLine (id |> Utils.toHex)
     Task.Delay(1000) 
