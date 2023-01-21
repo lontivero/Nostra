@@ -1,14 +1,10 @@
 ﻿// For more information see https://aka.ms/fsharp-console-apps
 open System
 open System.Net.WebSockets
-open System.Text
 open System.Threading
-open Chiron.Parsing
 open Microsoft.FSharp.Control
 open Nostra.Core
-open Chiron
 open Nostra.Core.Client
-open Nostra.Core.Client.Query
 
 let printEvent (event, valid) =
     let (XOnlyPubKey pubKey) = event.PubKey
@@ -31,7 +27,7 @@ let Main =
         do! ws.ConnectAsync (uri, CancellationToken.None) |> Async.AwaitTask
         let pushToRelay = run (ws : WebSocket) (sender ())
          
-        let filter = toFilter (CommonClientFilter.AllNotes (DateTime.UtcNow.AddDays(-1)))
+        let filter = Query.toFilter (Query.CommonClientFilter.AllNotes (DateTime.UtcNow.AddDays(-1)))
         Request.CMSubscribe ("all", [filter])
         |> pushToRelay
 

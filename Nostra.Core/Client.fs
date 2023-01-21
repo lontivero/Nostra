@@ -1,191 +1,257 @@
-module Nostra.Core.Client
+namespace Nostra.Core
 
-    open System
-    open System.IO
-    open System.Text
-    open System.Threading
-    open Microsoft.FSharp.Control
-    open System.Buffers
-    open System.Net.WebSockets
-    open Chiron
+open System
+open System.IO
+open System.Text
+open System.Threading
+open Microsoft.FSharp.Collections
+open Microsoft.FSharp.Control
+open System.Buffers
+open System.Net.WebSockets
+open Thoth.Json.Net
 
-    module Query =
-        type Filter = {
-            Kinds : Kind list
-            Authors: XOnlyPubKey list
-            Limit: int
-            Since: DateTime
-            Until: DateTime
-            Events: EventId list
-            PubKeys: XOnlyPubKey list
-        } with
-            static member ToJson(filter : Filter) = json {
-                let kindsToJson (kinds : Kind list) =
-                    Array <| (kinds |> List.map (decimal >> Number))
-                do! Json.writeWith kindsToJson "kinds" filter.Kinds
-                do! Json.write "authors" filter.Authors
-                do! Json.write "limit" filter.Limit
-                do! Json.writeWith dateTimeToJson "since" filter.Since
-                do! Json.writeWith dateTimeToJson "until" filter.Until
-                do! Json.write "#e" filter.Events
-                do! Json.write "#p" filter.PubKeys
-            }
-            static member FromJson(_: Filter) = json {
-                let jsonToKing = function
-                    | Number n -> enum<Kind>(int n)
-                    | _ -> failwith "error"
-                    
-                let jsonToKinds (json: Json) =  
-                    match json with
-                    | Array kinds -> Value (kinds |> List.map jsonToKing)
-                    | _ -> Error ("An array of kinds was expected")
+module Query =
+    type Filter = {
+        Ids: EventId list
+        Kinds: Kind list
+        Authors: XOnlyPubKey list
+        Limit: int
+        Since: DateTime
+        Until: DateTime
+        Events: EventId list
+        PubKeys: XOnlyPubKey list
+    }
+    module Filter =
+        let decoder : Decoder<Filter> =
+            Decode.object (fun get -> {
+                Ids = get.Required.Field "ids" (Decode.list Decode.eventId)
+                Kinds = get.Required.Field "kinds" (Decode.list Decode.Enum.int)
+                Authors = get.Required.Field "authors" (Decode.list Decode.xOnlyPubkey)
+                Limit = get.Required.Field "limit" Decode.int |> (fun x -> min x 500) 
+                Since = get.Required.Field "since" Decode.unixDateTime
+                Until = get.Required.Field "until" Decode.unixDateTime
+                Events = get.Required.Field "#e" (Decode.list Decode.eventId)
+                PubKeys = get.Required.Field "#p" (Decode.list Decode.xOnlyPubkey)
+            })
 
-                let! kinds = Json.readWith jsonToKinds "kinds"
-                let! authors = Json.read "authors"
-                let! limit = Json.read "limit"
-                let! since = Json.readWith jsonToDateTime "since"
-                let! until = Json.readWith jsonToDateTime "until"
-                let! events = Json.read "#e"
-                let! pubkeys = Json.read "#p"
-                return {
-                    Kinds = kinds
-                    Authors = authors
-                    Limit = limit
-                    Since = since
-                    Until = until
-                    Events = events
-                    PubKeys = pubkeys
-                }
-            }
-
-        type CommonClientFilter =
-             | MetadataFilter of XOnlyPubKey list * DateTime
-             | ContactsFilter of XOnlyPubKey list * DateTime
-             | TextNoteFilter of XOnlyPubKey list * DateTime
-             | LinkedEvents of EventId list * DateTime
-             | AllNotes of DateTime
-             | AllMetadata of DateTime
-             | DirectMessageFilter of XOnlyPubKey
-
-        let singleton : Filter = {
-             Kinds = []
-             Authors = []
-             Limit = 500
-             Since = DateTime.UnixEpoch
-             Until = DateTime.UtcNow.AddYears 1
-             Events = []
-             PubKeys = [] 
-             }
+        let encodeList list encoder =
+            Encode.list (list |> List.map encoder)
         
-        let toFilter = function
-            | MetadataFilter (authors, until) ->
-                { singleton with
-                   Kinds = [Kind.Metadata]
-                   Authors = authors
-                   Until = until }
-            | ContactsFilter (authors, until) ->
-                { singleton with
-                    Kinds = [Kind.Contacts]
-                    Authors = authors
-                    Until = until }
-            | TextNoteFilter (authors, until) ->
-                { singleton with
-                    Kinds = [Kind.Text]
-                    Authors = authors
-                    Until = until }
-            | LinkedEvents (eventIds, until) -> 
-                { singleton with
-                    Kinds = [Kind.Text]
-                    Events = eventIds
-                    Until = until }
-            | AllNotes since ->
-                { singleton with
-                    Kinds = [Kind.Text]
-                    Since = since }
-            | AllMetadata until ->
-                { singleton with
-                    Kinds = [Kind.Metadata]
-                    Until = until }
-            | DirectMessageFilter from ->
-                { singleton with
-                    Kinds = [Kind.Encrypted]
-                    Authors = [from] }
+        let encoder (filter : Filter) =
+            Encode.object [
+                "ids", encodeList filter.Ids Encode.eventId
+                "kinds", encodeList filter.Kinds Encode.Enum.int
+                "authors", encodeList filter.Authors Encode.xOnlyPubkey
+                "limit", Encode.int filter.Limit
+                "since", Encode.unixDateTime filter.Since
+                "until", Encode.unixDateTime filter.Until
+                "#e", encodeList filter.Events Encode.eventId
+                "#p", encodeList filter.PubKeys Encode.xOnlyPubkey
+            ]
 
-    type SubscriptionId = string
+    type CommonClientFilter =
+         | MetadataFilter of XOnlyPubKey list * DateTime
+         | ContactsFilter of XOnlyPubKey list * DateTime
+         | TextNoteFilter of XOnlyPubKey list * DateTime
+         | LinkedEvents of EventId list * DateTime
+         | AllNotes of DateTime
+         | AllMetadata of DateTime
+         | DirectMessageFilter of XOnlyPubKey
 
-    module Request =
-        type ClientMessage =
-            | CMEvent of NostrEvent
-            | CMSubscribe of SubscriptionId * Query.Filter list
-            | CMUnsubscribe of SubscriptionId
-            | CMUnknown
-            
-            with
-            static member ToJson(msg : ClientMessage) =
-                match msg with
-                | CMEvent event -> ToJsonDefaults.ToJson (("EVENT", event))
-                | CMSubscribe (subscriptionId, filters) -> ToJsonDefaults.ToJson  (([String "REQ"; String subscriptionId ] @ [for filter in filters do filter |> Json.serialize]))
-                | CMUnsubscribe subscriptionId -> ToJsonDefaults.ToJson (("CLOSE", subscriptionId))
-                | CMUnknown _ -> ToJsonDefaults.ToJson (()) 
-                
-            static member FromJson(_: ClientMessage) = fun json ->
-                let serialized =
-                    match json with
-                    | Array [String "EVENT"; event] -> CMEvent(event |> Json.deserialize)
-                    | Array ((String "REQ")::(String subscriptionId)::(filter)::filters) -> CMSubscribe(subscriptionId, [filter |> Json.deserialize] @ [for filter in filters do filter |> Json.deserialize])
-                    | Array [String "CLOSE"; String subscriptionId] -> CMUnsubscribe(subscriptionId)
-                    | _ -> CMUnknown 
-                Value serialized, json 
-        
-        let serialize (msg: ClientMessage) =
-            msg |> Json.serialize |> Json.format
-            
-        let deserialize (str: string) : ClientMessage =
-            str |> Json.parse |> Json.deserialize
-        
-    module Response =
-        type RelayMessage =
-            | RMEvent of SubscriptionId * NostrEvent
-            | RMNotice of string
-            | RMACK of EventId * bool * string
-            | RMEOSE of string
-            with
-
-            static member ToJson(msg : RelayMessage) =
-                match msg with
-                | RMEvent (subscriptionId, event) -> ToJsonDefaults.ToJson (("EVENT", subscriptionId, event))
-                | RMNotice message -> ToJsonDefaults.ToJson (("NOTICE", message))
-                | RMACK (eventId, success, message) -> ToJsonDefaults.ToJson (("OK", eventId, success, message))
-                | RMEOSE message -> ToJsonDefaults.ToJson (("EOSE", message))
-
-            static member FromJson(_: RelayMessage) = fun json ->
-                match json with
-                | Array [String "EVENT"; String subscriptionId; event] -> Value <| RMEvent (subscriptionId, event |> Json.deserialize), json
-                | Array [String "NOTICE"; String message] -> Value <| RMNotice (message), json
-                | Array [String "OK";  String64 eventId; Bool success; String message] -> Value <| RMACK (EventId eventId, success, message), json
-                | Array [String "EOSE"; String subscriptionId] -> Value <| RMEOSE (subscriptionId), json
-                | _ -> Error "Unexpected message format from the relay", json
-
-        let serialize (msg: RelayMessage) =
-            msg |> Json.serialize |> Json.format  
-        
-        let toPayload (msg: RelayMessage) =
-            msg
-            |> serialize
-            |> Encoding.UTF8.GetBytes
-            |> ArraySegment
-            
-        let deserialize (str: string) : RelayMessage =
-            str |> Json.parse |> Json.deserialize
-            
-            
-    open Response
+    let singleton : Filter = {
+         Ids = []
+         Kinds = []
+         Authors = []
+         Limit = 500
+         Since = DateTime.UnixEpoch
+         Until = DateTime.UtcNow.AddYears 1
+         Events = []
+         PubKeys = [] 
+         }
     
+    let toFilter = function
+        | MetadataFilter (authors, until) ->
+            { singleton with
+               Kinds = [Kind.Metadata]
+               Authors = authors
+               Until = until }
+        | ContactsFilter (authors, until) ->
+            { singleton with
+                Kinds = [Kind.Contacts]
+                Authors = authors
+                Until = until }
+        | TextNoteFilter (authors, until) ->
+            { singleton with
+                Kinds = [Kind.Text]
+                Authors = authors
+                Until = until }
+        | LinkedEvents (eventIds, until) -> 
+            { singleton with
+                Kinds = [Kind.Text]
+                Events = eventIds
+                Until = until }
+        | AllNotes since ->
+            { singleton with
+                Kinds = [Kind.Text]
+                Since = since }
+        | AllMetadata until ->
+            { singleton with
+                Kinds = [Kind.Metadata]
+                Until = until }
+        | DirectMessageFilter from ->
+            { singleton with
+                Kinds = [Kind.Encrypted]
+                Authors = [from] }
+
+type SubscriptionId = string
+
+module Request =
+    type ClientMessage =
+        | CMEvent of Event
+        | CMSubscribe of SubscriptionId * Query.Filter list
+        | CMUnsubscribe of SubscriptionId
+        | CMUnknown
+    module ClientMessage =
+        module Decode =
+            let cmEvent : Decoder<ClientMessage> =
+                Decode.tuple2 (Decode.expect "EVENT") Decode.event
+                |> Decode.andThen (fun (_, event) -> Decode.succeed (CMEvent event))
+
+            let cmUnsubscribe : Decoder<ClientMessage> =
+                Decode.tuple2 (Decode.expect "CLOSE") Decode.string
+                |> Decode.andThen (fun (_, subscriptionId) -> Decode.succeed (CMUnsubscribe subscriptionId))
+        
+            let cmSubscribe : Decoder<ClientMessage> =
+                fun path value -> 
+                    if Decode.Helpers.isArray value then
+                        let items = Decode.Helpers.asArray value
+                        let len = items.Length
+                        if len >= 3 then
+                            let commandResult = Decode.index 0 (Decode.string) path value 
+                            let subscriptionIdResult = Decode.index 1 (Decode.string) path value
+                            let filtersResult =
+                                (Ok [], items |> Array.mapi (fun i x -> i, x) |> Array.skip 2 )
+                                ||> Array.fold (fun acc values ->
+                                        match acc with
+                                        | Error _ -> acc
+                                        | Ok acc ->
+                                            match Decode.index (fst values) (Query.Filter.decoder) path value with
+                                            | Error er -> Error er
+                                            | Ok value -> Ok (value::acc))
+                            match commandResult, subscriptionIdResult, filtersResult with
+                            | Ok ("REQ"), Ok(subscriptionId), Ok(filters) -> Ok (CMSubscribe(subscriptionId, filters))
+                            | _ -> Error (path, BadType("REQ", value))
+                        else
+                            Error (path, BadType ("REQ array is too short", value))
+                    else
+                        Error (path, BadType ("REQ is not and array", value))
+
+            let clientMessage : Decoder<ClientMessage> =
+                Decode.oneOf [
+                    cmEvent
+                    cmUnsubscribe
+                    cmSubscribe
+                ]
+
+        module Encode =
+            let clientMessage = function
+                | CMEvent event -> Encode.tuple2 (Encode.string) (Encode.event) ("EVENT", event)
+                | CMUnsubscribe subscriptionId -> Encode.tuple2 (Encode.string) (Encode.string) ("CLOSE", subscriptionId)
+                | CMSubscribe (subscriptionId, filter) ->
+                    Encode.list ([
+                        Encode.string "REQ"
+                        Encode.string subscriptionId
+                        ] @ (filter |> List.map Query.Filter.encoder))
+                    
+    
+        let serialize (msg: ClientMessage) =
+            msg |> Encode.clientMessage |> Encode.toCompactString
+            
+        let deserialize str  =
+            Decode.fromString (Decode.clientMessage) str
+    
+open Request
+
+module Response =
+    type RelayMessage =
+        | RMEvent of SubscriptionId * Event
+        | RMNotice of string
+        | RMACK of EventId * bool * string
+        | RMEOSE of string
+
+    module Decode =
+        let rmEvent : Decoder<RelayMessage> =
+            Decode.tuple3 (Decode.expect "EVENT") Decode.string Decode.event
+            |> Decode.andThen (fun (_, subscriptionId, event) -> Decode.succeed (RMEvent (subscriptionId, event)))
+
+        let rmNotice : Decoder<RelayMessage> =
+            Decode.tuple2 (Decode.expect "NOTICE") Decode.string
+            |> Decode.andThen (fun (_, message) -> Decode.succeed (RMNotice message))
+
+        let rmEose : Decoder<RelayMessage> =
+            Decode.tuple2 (Decode.expect "EOSE") Decode.string 
+            |> Decode.andThen (fun (_, message) -> Decode.succeed (RMNotice message))
+
+        let rmAck : Decoder<RelayMessage> =
+            Decode.tuple4 (Decode.expect "OK") Decode.eventId Decode.bool Decode.string
+            |> Decode.andThen (fun (_, eventId, success, message) -> Decode.succeed (RMACK (eventId, success, message)))
+
+        let relayMessage : Decoder<RelayMessage> =
+            Decode.oneOf [
+                rmEvent
+                rmNotice
+                rmEose
+                rmAck
+            ]
+
+    module Encode =
+        let relayMessage = function
+            | RMEvent (subscriptionId, event) ->
+                Encode.tuple3
+                    Encode.string
+                    Encode.string
+                    Encode.event
+                    ("EVENT", subscriptionId, event)
+            | RMNotice message ->
+                Encode.tuple2
+                    Encode.string
+                    Encode.string
+                    ("NOTICE", message)
+            | RMACK (eventId, success, message) ->
+                Encode.tuple4
+                    Encode.string
+                    Encode.eventId
+                    Encode.bool
+                    Encode.string
+                    ("OK", eventId, success, message)
+            | RMEOSE subscriptionId ->
+                Encode.tuple2
+                    Encode.string
+                    Encode.string
+                    ("EOSE", subscriptionId)
+
+    let serialize (msg: RelayMessage) =
+        msg |> Encode.relayMessage |> Encode.toCompactString
+
+    let toPayload (msg: RelayMessage) =
+        msg
+        |> serialize
+        |> Encoding.UTF8.GetBytes
+        |> ArraySegment
+        
+    let deserialize (str: string)  =
+        Decode.fromString (Decode.relayMessage) str
+        
+        
+open Response
+
+module Client =
     type Reader<'environment,'a> = Reader of ('environment -> 'a)
+
     let run environment (Reader action) =  
         let resultOfAction = action environment 
         resultOfAction
-    
+
     let readWebSocketMessage (ws:WebSocket) =
         let rec readMessage (mem:MemoryStream) = async {
             let buffer = ArraySegment (ArrayPool.Shared.Rent(1024))
@@ -199,18 +265,21 @@ module Nostra.Core.Client
         }
         readMessage (new MemoryStream (4 * 1024))
 
-    let startReceiving (fn: NostrEvent * bool -> unit) = 
+    let startReceiving (fn: Event * bool -> unit) = 
         let rec loop (ws) = async {
             let! payload = (readWebSocketMessage ws)
-            let relayMsg : RelayMessage = Encoding.UTF8.GetString payload |> Json.parse |> Json.deserialize
-            match relayMsg with
-            | RMEvent (subscriptionId, event) ->
-                fn (event, (verify event)) |> ignore
-                Console.WriteLine ("received:")
-                Console.WriteLine (Encoding.UTF8.GetString payload)
-            | RMNotice notice -> 1 |> ignore
-            | RMACK (eid, s, ack) -> 1 |> ignore
-            | RMEOSE s -> 1 |> ignore
+            let relayMsgResult = Encoding.UTF8.GetString payload |> deserialize
+            match relayMsgResult with
+            | Error e -> 0 |> ignore
+            | Ok relayMsg ->
+                match relayMsg with
+                | RMEvent (subscriptionId, event) ->
+                    fn (event, (verify event)) |> ignore
+                    Console.WriteLine ("received:")
+                    Console.WriteLine (Encoding.UTF8.GetString payload)
+                | RMNotice notice -> 1 |> ignore
+                | RMACK (eid, s, ack) -> 1 |> ignore
+                | RMEOSE s -> 1 |> ignore
             do! loop (ws)
         }
         Reader (fun (ws:WebSocket) -> loop ws)
@@ -220,7 +289,7 @@ module Nostra.Core.Client
             MailboxProcessor<Request.ClientMessage>.Start (fun inbox ->
                 let rec loop () = async { 
                     let! msg = inbox.Receive()
-                    let serializedMessage = msg |> Request.serialize
+                    let serializedMessage = msg |> ClientMessage.serialize
                     Console.WriteLine("sent:")
                     Console.WriteLine(serializedMessage)
                     let payload = serializedMessage |> Encoding.UTF8.GetBytes

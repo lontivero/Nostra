@@ -6,13 +6,16 @@
     </PropertyGroup>
 
     <ItemGroup>
+        <Compile Include="Utils.fs" />
+        <Compile Include="Types.fs" />
         <Compile Include="Event.fs" />
         <Compile Include="Client.fs" />
+        <None Include="test.fsx" />
     </ItemGroup>
 
     <ItemGroup>
-      <PackageReference Include="Chiron" Version="6.3.1" />
       <PackageReference Include="NBitcoin.Secp256k1" Version="3.1.0" />
+      <PackageReference Include="Thoth.Json.Net" Version="10.0.0" />
     </ItemGroup>
 
 </Project>
