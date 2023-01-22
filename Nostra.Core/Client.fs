@@ -13,41 +13,48 @@ open Thoth.Json.Net
 module Query =
     type Filter = {
         Ids: EventId list
-        Kinds: Kind list
-        Authors: XOnlyPubKey list
-        Limit: int
-        Since: DateTime
-        Until: DateTime
-        Events: EventId list
-        PubKeys: XOnlyPubKey list
+        Kinds: Kind list 
+        Authors: XOnlyPubKey list 
+        Limit: int option 
+        Since: DateTime option 
+        Until: DateTime option 
+        Events: EventId list 
+        PubKeys: XOnlyPubKey list 
     }
     module Filter =
         let decoder : Decoder<Filter> =
             Decode.object (fun get -> {
-                Ids = get.Required.Field "ids" (Decode.list Decode.eventId)
-                Kinds = get.Required.Field "kinds" (Decode.list Decode.Enum.int)
-                Authors = get.Required.Field "authors" (Decode.list Decode.xOnlyPubkey)
-                Limit = get.Required.Field "limit" Decode.int |> (fun x -> min x 500) 
-                Since = get.Required.Field "since" Decode.unixDateTime
-                Until = get.Required.Field "until" Decode.unixDateTime
-                Events = get.Required.Field "#e" (Decode.list Decode.eventId)
-                PubKeys = get.Required.Field "#p" (Decode.list Decode.xOnlyPubkey)
+                Ids = get.Optional.Field "ids" (Decode.list Decode.eventId) |> Option.defaultValue [] 
+                Kinds = get.Optional.Field "kinds" (Decode.list Decode.Enum.int) |> Option.defaultValue []
+                Authors = get.Optional.Field "authors" (Decode.list Decode.xOnlyPubkey) |> Option.defaultValue []
+                Limit = get.Optional.Field "limit" Decode.int
+                Since = get.Optional.Field "since" Decode.unixDateTime
+                Until = get.Optional.Field "until" Decode.unixDateTime
+                Events = get.Optional.Field "#e" (Decode.list Decode.eventId) |> Option.defaultValue []
+                PubKeys = get.Optional.Field "#p" (Decode.list Decode.xOnlyPubkey) |> Option.defaultValue []
             })
 
-        let encodeList list encoder =
-            Encode.list (list |> List.map encoder)
-        
+        let encodeList field list encoder map : (string * JsonValue) list =
+            match list with
+            | [] -> map
+            | _ -> (field, Encode.list (list |> List.map encoder)) :: map
+            
+        let encodeOption field opt encoder map : (string * JsonValue) list =
+            match opt with
+            | None -> map
+            | Some v -> (field, encoder v) :: map
+            
         let encoder (filter : Filter) =
-            Encode.object [
-                "ids", encodeList filter.Ids Encode.eventId
-                "kinds", encodeList filter.Kinds Encode.Enum.int
-                "authors", encodeList filter.Authors Encode.xOnlyPubkey
-                "limit", Encode.int filter.Limit
-                "since", Encode.unixDateTime filter.Since
-                "until", Encode.unixDateTime filter.Until
-                "#e", encodeList filter.Events Encode.eventId
-                "#p", encodeList filter.PubKeys Encode.xOnlyPubkey
-            ]
+            []
+            |> encodeList "ids" filter.Ids Encode.eventId
+            |> encodeList "kinds" filter.Kinds Encode.Enum.int
+            |> encodeList "authors" filter.Authors Encode.xOnlyPubkey
+            |> encodeList "#e" filter.Events Encode.eventId
+            |> encodeList "#p" filter.PubKeys Encode.xOnlyPubkey
+            |> encodeOption "limit" filter.Limit Encode.int
+            |> encodeOption "since" filter.Since Encode.unixDateTime 
+            |> encodeOption "until" filter.Until Encode.unixDateTime 
+            |> Encode.object
 
     type CommonClientFilter =
          | MetadataFilter of XOnlyPubKey list * DateTime
@@ -62,9 +69,9 @@ module Query =
          Ids = []
          Kinds = []
          Authors = []
-         Limit = 500
-         Since = DateTime.UnixEpoch
-         Until = DateTime.UtcNow.AddYears 1
+         Limit = None
+         Since = None
+         Until = None
          Events = []
          PubKeys = [] 
          }
@@ -74,30 +81,30 @@ module Query =
             { singleton with
                Kinds = [Kind.Metadata]
                Authors = authors
-               Until = until }
+               Until = Some until }
         | ContactsFilter (authors, until) ->
             { singleton with
                 Kinds = [Kind.Contacts]
                 Authors = authors
-                Until = until }
+                Until = Some until }
         | TextNoteFilter (authors, until) ->
             { singleton with
                 Kinds = [Kind.Text]
                 Authors = authors
-                Until = until }
+                Until = Some until }
         | LinkedEvents (eventIds, until) -> 
             { singleton with
                 Kinds = [Kind.Text]
                 Events = eventIds
-                Until = until }
+                Until = Some until }
         | AllNotes since ->
             { singleton with
                 Kinds = [Kind.Text]
-                Since = since }
+                Since = Some since }
         | AllMetadata until ->
             { singleton with
                 Kinds = [Kind.Metadata]
-                Until = until }
+                Until = Some until }
         | DirectMessageFilter from ->
             { singleton with
                 Kinds = [Kind.Encrypted]
@@ -266,7 +273,7 @@ module Client =
         readMessage (new MemoryStream (4 * 1024))
 
     let startReceiving (fn: Event * bool -> unit) = 
-        let rec loop (ws) = async {
+        let rec loop (ws: WebSocket) = async {
             let! payload = (readWebSocketMessage ws)
             let relayMsgResult = Encoding.UTF8.GetString payload |> deserialize
             match relayMsgResult with
@@ -275,8 +282,6 @@ module Client =
                 match relayMsg with
                 | RMEvent (subscriptionId, event) ->
                     fn (event, (verify event)) |> ignore
-                    Console.WriteLine ("received:")
-                    Console.WriteLine (Encoding.UTF8.GetString payload)
                 | RMNotice notice -> 1 |> ignore
                 | RMACK (eid, s, ack) -> 1 |> ignore
                 | RMEOSE s -> 1 |> ignore

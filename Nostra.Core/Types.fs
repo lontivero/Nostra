@@ -24,9 +24,9 @@ module Decode =
               Decode.fail $"'{expectedValue}' was expected but '{value} was found instead'")
 
     let unixDateTime : Decoder<DateTime> =
-        Decode.int64
+        Decode.uint32
         |> Decode.andThen (fun n ->
-            Decode.succeed (n * TimeSpan.TicksPerSecond + DateTime.UnixEpoch.Ticks |> DateTime))
+            Decode.succeed (int64 n * TimeSpan.TicksPerSecond + DateTime.UnixEpoch.Ticks |> DateTime))
 
     let eventId : Decoder<EventId> =
         Decode.string
@@ -60,10 +60,10 @@ module Decode =
 
 module Encode =
     let unixDateTime (date : DateTime) =
-        Encode.int64 (
+        Encode.uint32 (
             date - DateTime.UnixEpoch
             |> fun t -> t.TotalSeconds
-            |> int64)
+            |> uint32)
 
     let eventId (EventId id) =
         Encode.string (toHex id)

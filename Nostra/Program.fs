@@ -20,8 +20,8 @@ let Main =
     let event = sign secret unsignedEvent 
     let v = Event.verify event
     
-    //let uri = Uri("wss://nostr-pub.wellorder.net")
-    let uri = Uri("ws://127.0.0.1:8080/websocket")
+    let uri = Uri("wss://nostr-pub.wellorder.net")
+    //let uri = Uri("ws://127.0.0.1:8080/websocket")
     let ws = new ClientWebSocket()
     async {
         do! ws.ConnectAsync (uri, CancellationToken.None) |> Async.AwaitTask
