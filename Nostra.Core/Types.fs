@@ -12,7 +12,9 @@ type XOnlyPubKey = XOnlyPubKey of ECXOnlyPubKey
 type ProfileName = string
 type Uri_ = string
 type SchnorrSignature = SchnorrSignature of SecpSchnorrSignature 
-type Tag = string * string list 
+type Tag = string * (string list) 
+type SerializedEvent = string
+
 
 module Decode =
     let expect expectedValue: Decoder<string> =

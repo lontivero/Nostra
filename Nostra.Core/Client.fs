@@ -117,7 +117,6 @@ module Request =
         | CMEvent of Event
         | CMSubscribe of SubscriptionId * Query.Filter list
         | CMUnsubscribe of SubscriptionId
-        | CMUnknown
     module ClientMessage =
         module Decode =
             let cmEvent : Decoder<ClientMessage> =
