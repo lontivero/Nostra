@@ -15,3 +15,11 @@ module Utils =
         | s when s.Length = len && s.ToCharArray() |> Array.forall ishexa ->
             Some (fromHex s)
         | _ -> None
+        
+module Monad =
+    type Reader<'environment,'a> = Reader of ('environment -> 'a)
+
+    let run environment (Reader action) =  
+        let resultOfAction = action environment 
+        resultOfAction
+    

@@ -10,6 +10,8 @@ open Newtonsoft.Json
 type EventId = EventId of byte[]
 type XOnlyPubKey = XOnlyPubKey of ECXOnlyPubKey
 type ProfileName = string
+type SubscriptionId = string
+
 type Uri_ = string
 type SchnorrSignature = SchnorrSignature of SecpSchnorrSignature 
 type Tag = string * (string list) 

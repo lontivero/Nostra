@@ -127,13 +127,13 @@ module Event =
     
     let createEncryptedDirectMessage (recipient: XOnlyPubKey) (secret: ECPrivKey) content =
         let sharedPubKey = sharedKey recipient secret
-        let iv, encryptedContent = Encryption.encrypt (sharedPubKey) content 
+        let iv, encryptedContent = Encryption.encrypt sharedPubKey content 
         createEvent Kind.Encrypted [encryptedTo recipient] $"{Convert.ToBase64String(encryptedContent)}?iv={Convert.ToBase64String(iv)}"
     
     let decryptDirectMessage (secret: ECPrivKey) (event: Event) =
         let message = event.Content
         let parts =
-            message.Split ("?iv=")
+            message.Split "?iv="
             |> Array.map Convert.FromBase64String
         let sharedPubKey = sharedKey event.PubKey secret
         Encryption.decrypt sharedPubKey parts[1] parts[0]
@@ -165,6 +165,6 @@ module Event =
         }
 
     let verify (event : Event) =
-        let (EventId id, XOnlyPubKey pubkey, SchnorrSignature signature) = event.Id, event.PubKey, event.Signature
+        let EventId id, XOnlyPubKey pubkey, SchnorrSignature signature = event.Id, event.PubKey, event.Signature
         let computedId = event |> toUnsignedEvent |> getEventId event.PubKey
         computedId = id && pubkey.SigVerifyBIP340(signature, id)

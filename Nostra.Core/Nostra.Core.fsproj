@@ -10,7 +10,8 @@
         <Compile Include="Types.fs" />
         <Compile Include="Event.fs" />
         <Compile Include="Client.fs" />
-        <None Include="test.fsx" />
+        <Compile Include="Relay.fs" />
+        <Content Include="todo.txt" />
     </ItemGroup>
 
     <ItemGroup>
