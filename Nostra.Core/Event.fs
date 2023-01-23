@@ -43,6 +43,9 @@ module Event =
     let encryptedTo (XOnlyPubKey pubkey) =
         Tag("p", [toHex (pubkey.ToBytes())])
 
+    let eventRefTag (EventId eventId) =
+        Tag("e", [toHex eventId])
+        
     type Kind =
         | Metadata = 0
         | Text = 1
@@ -119,6 +122,9 @@ module Event =
     let createReplyEvent (replyTo: EventId) (pubkey: XOnlyPubKey) content =
         createEvent Kind.Text [replyTag replyTo ""] content
 
+    let createDeleteEvent (ids: EventId list) content =
+        createEvent Kind.Deleted (ids |> List.map eventRefTag) content
+    
     let sharedKey (XOnlyPubKey he) (mySecret: ECPrivKey) =
         let ecPubKey = ReadOnlySpan (Array.insertAt 0 2uy (he.ToBytes()))
         let hisPubKey = ECPubKey.Create ecPubKey

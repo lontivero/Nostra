@@ -11,6 +11,7 @@ open Suave.Sockets.Control
 open Suave.WebSocket
 open Relay.Request
 open Relay.Response
+open Thoth.Json.Net
 
 let ws (eventStore:EventStore) (webSocket : WebSocket) (context: HttpContext) =
     let subscriptions = Dictionary<SubscriptionId, Filter list>()
@@ -82,13 +83,31 @@ let ws (eventStore:EventStore) (webSocket : WebSocket) (context: HttpContext) =
 open Suave.Operators
 open Suave.Filters
 open Suave.RequestErrors
+open Suave.Successful
+
+let relayInformationDocument =
+    OK <| InfoDocument.getRelayInfoDocument ()
+    >=> Writers.setMimeType """application/json; charset="utf-8";"""
+    >=> Writers.setHeader "Access-Control-Allow-Origin" "*"
+    >=> Writers.setHeader "Access-Control-Allow-Headers" "*"
+    >=> Writers.setHeader "Access-Control-Allow-Methods" "*"
 
 let app : WebPart =
     let webSocketHandler = ws (EventStore())
+
+    let handle fCont (ctx : HttpContext) =
+        let acceptHeader = ctx.request.header("Accept")
+        let upgradeHeader = ctx.request.header("Upgrade")
+        match acceptHeader, upgradeHeader with
+        | Choice1Of2 "application/nostr+json", _ -> relayInformationDocument ctx
+        | _, Choice1Of2 "websocket" -> handShake fCont ctx
+        | _ -> OK "Use a Nostr client" ctx 
+            
     choose [
-        path "/websocket" >=> handShake webSocketHandler
-        NOT_FOUND "Found no handlers." ]
-  
+        path "/" >=> handle webSocketHandler
+        NOT_FOUND "Found no handlers."
+        ]
+
 [<EntryPoint>]
 let main argv = 
   let cts = new CancellationTokenSource()

@@ -3,6 +3,7 @@ namespace Nostra.Core
 open System
 open System.Collections.Generic
 open System.Text
+open Microsoft.VisualBasic.CompilerServices
 open Nostra.Core.Client
 open Thoth.Json.Net
 
@@ -168,26 +169,37 @@ module Relay =
                     match msg with
                     | StoreEvent event ->
                         let (EventId eventId) = event.Id 
-                        let (XOnlyPubKey pubkey) = event.PubKey 
+                        let (XOnlyPubKey xOnlyPubkey) = event.PubKey
+                        let pubkey = Utils.toHex (xOnlyPubkey.ToBytes())
                         let storedEvent = {
                             Event = event
                             Id = Utils.toHex eventId
-                            PubKey = Utils.toHex (pubkey.ToBytes())
+                            PubKey = pubkey
                             Serialized = "rawEvent"
                             Seen = DateTime.UtcNow
                             RefEvents =
                                 event.Tags
-                                |> List.filter (fun tag -> fst tag = "#e")
+                                |> List.filter (fun tag -> fst tag = "e")
                                 |> List.map (fun tag -> List.head (snd tag))
                             RefPubKeys =
                                 event.Tags
-                                |> List.filter (fun tag -> fst tag = "#p")
+                                |> List.filter (fun tag -> fst tag = "p")
                                 |> List.map (fun tag -> List.head (snd tag))
                         }
-                           
+                        
                         let added = events.TryAdd ( event.Id, storedEvent ) // TODO what if not?
+                        if added && event.Kind = Kind.Deleted then
+                            storedEvent.RefEvents
+                            |> Seq.map (Utils.fromHex >> EventId)
+                            |> Seq.map (events.TryGetValue)
+                            |> Seq.filter (fun (found, se) ->
+                                found && se.PubKey = pubkey)
+                            |> Seq.map (fun (_, se) -> se.Event.Id)
+                            |> Seq.iter (fun eid ->
+                                events.Remove eid |> ignore)
+                                
                         async {
-                        afterEventStoredEvent.Trigger storedEvent
+                            afterEventStoredEvent.Trigger storedEvent
                         } |> Async.Start
                     | GetEvents (filters, reply) ->
                         let matchingEvents =
@@ -204,3 +216,15 @@ module Relay =
         [<CLIEvent>]
         member this.afterEventStored = afterEventStoredEvent.Publish
 
+    module InfoDocument =
+        let getRelayInfoDocument () =
+            Encode.object [
+                "name", Encode.string ""
+                "description", Encode.string "Relay without persistence"
+                "pubkey", Encode.string ""
+                "contact", Encode.string "lucasontivero@gmail.com"
+                "supported_nips", Encode.list (List.map Encode.int [1; 2; 4; 9; 11 ]) 
+                "software", Encode.string "https://github.com/lontivero/Nostra/"
+                "version", Encode.string "0.0.1"
+            ]
+            |> Encode.toString 2

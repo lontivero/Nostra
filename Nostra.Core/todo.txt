@@ -3,3 +3,5 @@
 - cache event parts
 - implement relay info document
 - Implement deletions
+- web api
+

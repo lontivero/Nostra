@@ -14,13 +14,9 @@ let printEvent (event, valid) =
 
 let Main =
     let secret = Key.createNewRandom ()
-    let pubkey = Key.getPubKey secret |> XOnlyPubKey
-    let unsignedEvent = createNoteEvent "Hello world!"
-    let event = sign secret unsignedEvent 
-    let v = Event.verify event
     
     //let uri = Uri("wss://nostr-pub.wellorder.net")
-    let uri = Uri("ws://127.0.0.1:8080/websocket")
+    let uri = Uri("ws://127.0.0.1:8080/")
     let ws = new ClientWebSocket()
     async {
         do! ws.ConnectAsync (uri, CancellationToken.None) |> Async.AwaitTask
@@ -30,9 +26,20 @@ let Main =
         Request.CMSubscribe ("all", [filter])
         |> pushToRelay
 
-        Request.CMEvent event
+        let note =
+            createNoteEvent "Hello world!"
+            |> sign secret
+            
+        Request.CMEvent note
         |> pushToRelay
 
+        let delete =
+            createDeleteEvent [note.Id] "Because I can" 
+            |> sign secret
+
+        Request.CMEvent delete
+        |> pushToRelay
+                
         let receiveLoop = Monad.run (ws : WebSocket) (Client.startReceiving printEvent)
         do! receiveLoop
        
