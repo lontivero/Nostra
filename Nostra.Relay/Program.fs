@@ -66,33 +66,31 @@ let webSocketHandler (eventStore:EventStore) (webSocket : WebSocket) (context: H
             |> Option.iter (fun (subscriptionId, _) ->
                 sendFinal (RMEvent (subscriptionId, event.Event))))
         
-    socket {
-        let mutable loop = true
-
-        while loop do
-            let! msg = webSocket.read()
-
-            match msg with
-            | Text, data, true ->
-                let requestText = UTF8.toString data
-                match processRequest requestText with
-                | Ok [ ] ->
-                    0 |> ignore
-                | Ok (final::messages) ->
-                    messages
-                    |> List.rev
-                    |> List.iter sendAndContinue
-                    sendFinal final
-                | Error e ->
-                    sendFinal (RMNotice e)
-            | Close, _, _ ->
-                onEvents.Dispose()
-                let emptyResponse = [||] |> ByteSegment
-                do! webSocket.send Close emptyResponse true
-                loop <- false
-
-            | _ -> ()
-      }
+    let rec loop () = socket {
+        let! msg = webSocket.read()
+        match msg with
+        | Text, data, true ->
+            let requestText = UTF8.toString data
+            match processRequest requestText with
+            | Ok [ ] ->
+                0 |> ignore
+            | Ok (final::messages) ->
+                messages
+                |> List.rev
+                |> List.iter sendAndContinue
+                sendFinal final
+            | Error e ->
+                sendFinal (RMNotice e)
+            return! loop()
+        | Close, _, _ ->
+            onEvents.Dispose()
+            let emptyResponse = [||] |> ByteSegment
+            do! webSocket.send Close emptyResponse true
+        | _ ->
+            return! loop()
+    }
+    
+    loop ()
     
 open Suave.Operators
 open Suave.Filters
@@ -142,7 +140,7 @@ let main argv =
   let cts = new CancellationTokenSource()
   let conf = { defaultConfig with cancellationToken = cts.Token }
   let listening, server = startWebServerAsync conf app
-    
+  
   Async.Start(server, cts.Token)
   printfn "Make requests now"
   Console.ReadKey true |> ignore
