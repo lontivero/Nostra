@@ -161,12 +161,13 @@ module Client =
             Decode.fromString Decode.relayMessage str
 
     module Communication =
+        open WebSocket
         let readWebSocketMessage (ws:WebSocket) =
             let rec readMessage (mem:MemoryStream) = async {
-                let buffer = ArraySegment (ArrayPool.Shared.Rent(1024))
-                let! result = ws.ReceiveAsync(buffer, CancellationToken.None) |> Async.AwaitTask
-                mem.Write (buffer.Array, buffer.Offset, result.Count)
-                ArrayPool.Shared.Return buffer.Array
+                let buffer = ArrayPool.Shared.Rent(1024)
+                let! result = ws.read(buffer)
+                mem.Write (buffer, 0, result.Count)
+                ArrayPool.Shared.Return buffer
                 if result.EndOfMessage then
                     return mem.ToArray()
                 else
@@ -200,7 +201,7 @@ module Client =
                         Console.WriteLine("sent:")
                         Console.WriteLine(serializedMessage)
                         let payload = serializedMessage |> Encoding.UTF8.GetBytes
-                        do! ws.SendAsync( ArraySegment(payload), WebSocketMessageType.Text, true, CancellationToken.None) |> Async.AwaitTask
+                        do! ws.write(payload)
                         return! loop() }
                     loop () )
                 

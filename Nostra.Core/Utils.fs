@@ -1,5 +1,7 @@
 namespace Nostra.Core
 
+open System
+
 module Utils =
     open System
 
@@ -23,3 +25,9 @@ module Reader =
         let resultOfAction = action environment 
         resultOfAction
     
+module WebSocket =
+    type WebSocketResult = { Count: int; EndOfMessage:  bool }
+    type WebSocket = {
+        read: byte[] -> Async<WebSocketResult>
+        write: byte[] -> Async<unit>
+    }
