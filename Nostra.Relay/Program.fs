@@ -2,20 +2,48 @@
 open System.Collections.Generic
 open System.Threading
 open Microsoft.FSharp.Control
-open Nostra.Core
-open Nostra.Core.Client
-open Nostra.Core.Relay
+open Nostra.Core.Relay.Communication
 open Suave
 open Suave.Sockets
 open Suave.Sockets.Control
 open Suave.WebSocket
+open Thoth.Json.Net
+open Nostra.Core
+open Nostra.Core.Event
+open Nostra.Core.Relay
 open Relay.Request
 open Relay.Response
-open Thoth.Json.Net
 
-let ws (eventStore:EventStore) (webSocket : WebSocket) (context: HttpContext) =
+let webSocketHandler (eventStore:EventStore) (webSocket : WebSocket) (context: HttpContext) =
+
     let subscriptions = Dictionary<SubscriptionId, Filter list>()
 
+    let processRequest requestText =
+        deserialize requestText
+        |> Result.bind (function
+            | CMEvent event ->
+                if verify event then
+                    eventStore.storeEvent event
+                    
+                    Ok [ RMAck (event.Id, true, "added") ]
+                else
+                    Ok [ RMAck (event.Id, false, "invalid: the signature is incorrect") ]
+                    
+            | CMSubscribe(subscriptionId, filters) ->
+                let subscriptionFilters = filters 
+                subscriptions.Add( subscriptionId, subscriptionFilters )
+                let matchingEvents = eventStore.getEvents subscriptionFilters 
+                let rmEvents =
+                    matchingEvents
+                    |> List.map (fun e -> RMEvent( subscriptionId, e))
+                    |> List.rev
+                Ok <| (RMEOSE subscriptionId) :: rmEvents
+
+            | CMUnsubscribe subscriptionId ->
+                subscriptions.Remove subscriptionId |> ignore
+                Ok []
+            )
+    
     let send = 
         let worker =
             MailboxProcessor<RelayMessage * bool>.Start(fun inbox ->
@@ -37,7 +65,7 @@ let ws (eventStore:EventStore) (webSocket : WebSocket) (context: HttpContext) =
             |> Seq.tryFind(fun (_, m) -> m = true)
             |> Option.iter (fun (subscriptionId, _) ->
                 sendFinal (RMEvent (subscriptionId, event.Event))))
-
+        
     socket {
         let mutable loop = true
 
@@ -47,30 +75,16 @@ let ws (eventStore:EventStore) (webSocket : WebSocket) (context: HttpContext) =
             match msg with
             | Text, data, true ->
                 let requestText = UTF8.toString data
-
-                let msgFromClientResult = Request.deserialize requestText
-                match msgFromClientResult with
-                | Error _ ->
-                    sendFinal <| RMNotice "The message was not deserialized"
-                | Ok msgFromClient ->
-                    match msgFromClient with
-                    | CMEvent event ->
-                        if verify event then
-                            eventStore.storeEvent event
-                            sendFinal <| RMACK (event.Id, true, "added")
-                        else
-                            sendFinal <| RMACK (event.Id, false, "invalid: the signature is not valid")
-                    | CMSubscribe(subscriptionId, filters) ->
-                        let subscriptionFilters = filters 
-                        subscriptions.Add( subscriptionId, subscriptionFilters )
-                        let matchingEvents = eventStore.getEvents subscriptionFilters 
-                        matchingEvents
-                        |> List.map (fun e -> RMEvent( subscriptionId, e))
-                        |> List.iter sendAndContinue
-                        sendFinal <| RMEOSE subscriptionId
-
-                    | CMUnsubscribe subscriptionId ->
-                        subscriptions.Remove subscriptionId |> ignore
+                match processRequest requestText with
+                | Ok [ ] ->
+                    0 |> ignore
+                | Ok (final::messages) ->
+                    messages
+                    |> List.rev
+                    |> List.iter sendAndContinue
+                    sendFinal final
+                | Error e ->
+                    sendFinal (RMNotice e)
             | Close, _, _ ->
                 onEvents.Dispose()
                 let emptyResponse = [||] |> ByteSegment
@@ -93,7 +107,8 @@ let relayInformationDocument =
     >=> Writers.setHeader "Access-Control-Allow-Methods" "*"
 
 let app : WebPart =
-    let webSocketHandler = ws (EventStore())
+    let eventStore = EventStore()
+    let ws = webSocketHandler eventStore
 
     let handle fCont (ctx : HttpContext) =
         let acceptHeader = ctx.request.header("Accept")
@@ -104,9 +119,23 @@ let app : WebPart =
         | _ -> OK "Use a Nostr client" ctx 
             
     choose [
-        path "/" >=> handle webSocketHandler
-        NOT_FOUND "Found no handlers."
-        ]
+        path "/" >=> handle ws
+        POST >=> path "/api/req" >=> 
+            fun ctx ->
+                let filterResult =
+                    UTF8.toString ctx.request.rawForm
+                    |> Decode.fromString Filter.Decode.filter
+                    
+                match filterResult with
+                | Result.Ok filter ->
+                    let serialized =
+                        eventStore.getEvents [filter]
+                        |> List.map Encode.event
+                        |> Encode.list
+                        |> Encode.toCompactString
+                    OK serialized ctx
+                | Result.Error e -> BAD_REQUEST e ctx
+    ]
 
 [<EntryPoint>]
 let main argv = 

@@ -1,7 +1,17 @@
 - implement OK
 - implement created_at limits
 - cache event parts
-- implement relay info document
-- Implement deletions
 - web api
 
+
+/*
+let maxAmount = (2L <<< 32) - 1L 
+let rnd = SecureRandom()
+let issuerKey = CredentialIssuerSecretKey(rnd)
+let issuer = CredentialIssuer(issuerKey, rnd, maxAmount)
+
+let client = WabiSabiClient(issuerKey.ComputeCredentialIssuerParameters(), rnd, maxAmount)
+let requestData = client.CreateRequest ([5000L; 6000L], [], CancellationToken.None)
+let issuanceResponse = issuer.HandleRequest (requestData.CredentialsRequest)
+let credentials = client.HandleResponse (issuanceResponse, requestData.CredentialsResponseValidation)
+*/

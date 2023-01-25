@@ -3,7 +3,9 @@ open System.Net.WebSockets
 open System.Threading
 open Microsoft.FSharp.Control
 open Nostra.Core
+open Nostra.Core.Event
 open Nostra.Core.Client
+open Nostra.Core.Client.Request.Filter
 
 let printEvent (event, valid) =
     let (XOnlyPubKey pubKey) = event.PubKey
@@ -12,7 +14,9 @@ let printEvent (event, valid) =
     Console.WriteLine $"{mark} Kind: {event.Kind}  - Author: {pubKey.ToBytes() |> Utils.toHex}"
     Console.WriteLine (event.Content)
 
+
 let Main =
+    
     let secret = Key.createNewRandom ()
     
     //let uri = Uri("wss://nostr-pub.wellorder.net")
@@ -20,9 +24,9 @@ let Main =
     let ws = new ClientWebSocket()
     async {
         do! ws.ConnectAsync (uri, CancellationToken.None) |> Async.AwaitTask
-        let pushToRelay = Monad.run (ws : WebSocket) (Client.sender ())
+        let pushToRelay = Reader.run (ws : WebSocket) (Communication.sender ())
          
-        let filter = Filter.toFilter (Filter.CommonClientFilter.AllNotes (DateTime.UtcNow.AddDays(-1)))
+        let filter = FilterUtils.toFilter (FilterUtils.ClientFilter.AllNotes (DateTime.UtcNow.AddDays(-1)))
         Request.CMSubscribe ("all", [filter])
         |> pushToRelay
 
@@ -40,7 +44,7 @@ let Main =
         Request.CMEvent delete
         |> pushToRelay
                 
-        let receiveLoop = Monad.run (ws : WebSocket) (Client.startReceiving printEvent)
+        let receiveLoop = Reader.run (ws : WebSocket) (Communication.startReceiving printEvent)
         do! receiveLoop
        
     } |> Async.RunSynchronously

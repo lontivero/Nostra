@@ -1,11 +1,4 @@
-﻿#if INTERACTIVE
-#r "nuget:NBitcoin.Secp256k1"
-#r "nuget:Thoth.json.Net"
-#endif
-
-#nowarn "3391"
-
-namespace Nostra.Core
+﻿namespace Nostra.Core
 
 open System
 open System.Security.Cryptography
@@ -33,8 +26,6 @@ module Encryption =
         aes.DecryptCbc (cipherTextBytes, iv)
         |> Encoding.UTF8.GetString
 
-
-[<AutoOpen>]
 module Event =
     open Utils
     let replyTag (EventId replyTo) uri =

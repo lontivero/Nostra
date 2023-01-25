@@ -16,7 +16,7 @@ module Utils =
             Some (fromHex s)
         | _ -> None
         
-module Monad =
+module Reader =
     type Reader<'environment,'a> = Reader of ('environment -> 'a)
 
     let run environment (Reader action) =  

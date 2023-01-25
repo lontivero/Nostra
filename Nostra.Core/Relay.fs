@@ -8,6 +8,8 @@ open Nostra.Core.Client
 open Thoth.Json.Net
 
 module Relay =
+    open Nostra.Core.Event
+    
     type StoredEvent = {
         Id: string
         Event: Event
@@ -62,6 +64,7 @@ module Relay =
                 
                 isInTimeWindow &&
                 filter.Ids |> matchList [eventInfo.Id] &&
+                filter.Kinds |> matchList [eventInfo.Event.Kind] &&
                 filter.Authors |> matchList [eventInfo.PubKey] &&
                 filter.Events |> matchList eventInfo.RefEvents &&
                 filter.PubKeys |> matchList eventInfo.RefPubKeys
@@ -116,7 +119,7 @@ module Relay =
         type RelayMessage =
             | RMEvent of SubscriptionId * Event
             | RMNotice of string
-            | RMACK of EventId * bool * string
+            | RMAck of EventId * bool * string
             | RMEOSE of string
             
         module Encode =
@@ -132,7 +135,7 @@ module Relay =
                         Encode.string
                         Encode.string
                         ("NOTICE", message)
-                | RMACK (eventId, success, message) ->
+                | RMAck (eventId, success, message) ->
                     Encode.tuple4
                         Encode.string
                         Encode.eventId
@@ -154,67 +157,68 @@ module Relay =
             |> Encoding.UTF8.GetBytes
             |> ArraySegment
 
-    type EventProcessorCommand =
-        | StoreEvent of Event
-        | GetEvents of Request.Filter list * AsyncReplyChannel<Event list>
+    module Communication =
+        type EventProcessorCommand =
+            | StoreEvent of Event
+            | GetEvents of Request.Filter list * AsyncReplyChannel<Event list>
 
-    type EventStore () =
-        let afterEventStoredEvent = Event<StoredEvent>()
-        let events = Dictionary<EventId, StoredEvent>()
+        type EventStore () =
+            let afterEventStoredEvent = Event<StoredEvent>()
+            let events = Dictionary<EventId, StoredEvent>()
 
-        let worker =
-            MailboxProcessor<EventProcessorCommand>.Start (fun inbox ->
-                let rec loop () = async { 
-                    let! msg = inbox.Receive()
-                    match msg with
-                    | StoreEvent event ->
-                        let (EventId eventId) = event.Id 
-                        let (XOnlyPubKey xOnlyPubkey) = event.PubKey
-                        let pubkey = Utils.toHex (xOnlyPubkey.ToBytes())
-                        let storedEvent = {
-                            Event = event
-                            Id = Utils.toHex eventId
-                            PubKey = pubkey
-                            Serialized = "rawEvent"
-                            Seen = DateTime.UtcNow
-                            RefEvents =
-                                event.Tags
-                                |> List.filter (fun tag -> fst tag = "e")
-                                |> List.map (fun tag -> List.head (snd tag))
-                            RefPubKeys =
-                                event.Tags
-                                |> List.filter (fun tag -> fst tag = "p")
-                                |> List.map (fun tag -> List.head (snd tag))
-                        }
-                        
-                        let added = events.TryAdd ( event.Id, storedEvent ) // TODO what if not?
-                        if added && event.Kind = Kind.Deleted then
-                            storedEvent.RefEvents
-                            |> Seq.map (Utils.fromHex >> EventId)
-                            |> Seq.map (events.TryGetValue)
-                            |> Seq.filter (fun (found, se) ->
-                                found && se.PubKey = pubkey)
-                            |> Seq.map (fun (_, se) -> se.Event.Id)
-                            |> Seq.iter (fun eid ->
-                                events.Remove eid |> ignore)
-                                
-                        async {
-                            afterEventStoredEvent.Trigger storedEvent
-                        } |> Async.Start
-                    | GetEvents (filters, reply) ->
-                        let matchingEvents =
-                            events
-                            |> Seq.map (fun (KeyValue(_,v)) -> v)
-                            |> Seq.filter (Request.Filter.eventMatchesAnyFilter filters)
-                            |> Seq.map (fun x -> x.Event)
-                            |> Seq.toList
-                        reply.Reply matchingEvents
-                    return! loop() }
-                loop () )
-        member this.storeEvent event = worker.Post (StoreEvent event)
-        member this.getEvents filters = worker.PostAndReply (fun replyChannel -> GetEvents (filters, replyChannel)) 
-        [<CLIEvent>]
-        member this.afterEventStored = afterEventStoredEvent.Publish
+            let worker =
+                MailboxProcessor<EventProcessorCommand>.Start (fun inbox ->
+                    let rec loop () = async { 
+                        let! msg = inbox.Receive()
+                        match msg with
+                        | StoreEvent event ->
+                            let (EventId eventId) = event.Id 
+                            let (XOnlyPubKey xOnlyPubkey) = event.PubKey
+                            let pubkey = Utils.toHex (xOnlyPubkey.ToBytes())
+                            let storedEvent = {
+                                Event = event
+                                Id = Utils.toHex eventId
+                                PubKey = pubkey
+                                Serialized = "rawEvent"
+                                Seen = DateTime.UtcNow
+                                RefEvents =
+                                    event.Tags
+                                    |> List.filter (fun tag -> fst tag = "e")
+                                    |> List.map (fun tag -> List.head (snd tag))
+                                RefPubKeys =
+                                    event.Tags
+                                    |> List.filter (fun tag -> fst tag = "p")
+                                    |> List.map (fun tag -> List.head (snd tag))
+                            }
+                            
+                            let added = events.TryAdd ( event.Id, storedEvent ) // TODO what if not?
+                            if added && event.Kind = Kind.Deleted then
+                                storedEvent.RefEvents
+                                |> Seq.map (Utils.fromHex >> EventId)
+                                |> Seq.map (events.TryGetValue)
+                                |> Seq.filter (fun (found, se) ->
+                                    found && se.PubKey = pubkey)
+                                |> Seq.map (fun (_, se) -> se.Event.Id)
+                                |> Seq.iter (fun eid ->
+                                    events.Remove eid |> ignore)
+                                    
+                            async {
+                                afterEventStoredEvent.Trigger storedEvent
+                            } |> Async.Start
+                        | GetEvents (filters, reply) ->
+                            let matchingEvents =
+                                events
+                                |> Seq.map (fun (KeyValue(_,v)) -> v)
+                                |> Seq.filter (Request.Filter.eventMatchesAnyFilter filters)
+                                |> Seq.map (fun x -> x.Event)
+                                |> Seq.toList
+                            reply.Reply matchingEvents
+                        return! loop() }
+                    loop () )
+            member this.storeEvent event = worker.Post (StoreEvent event)
+            member this.getEvents filters = worker.PostAndReply (fun replyChannel -> GetEvents (filters, replyChannel)) 
+            [<CLIEvent>]
+            member this.afterEventStored = afterEventStoredEvent.Publish
 
     module InfoDocument =
         let getRelayInfoDocument () =
