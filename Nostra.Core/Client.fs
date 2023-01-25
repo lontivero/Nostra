@@ -3,11 +3,9 @@ namespace Nostra.Core
 open System
 open System.IO
 open System.Text
-open System.Threading
 open Microsoft.FSharp.Collections
 open Microsoft.FSharp.Control
 open System.Buffers
-open System.Net.WebSockets
 open Thoth.Json.Net
 
 module Client =
@@ -175,19 +173,22 @@ module Client =
             }
             readMessage (new MemoryStream (4 * 1024))
 
-        let startReceiving (fn: Event * bool -> unit) = 
+        let startReceiving callback = 
             let rec loop (ws: WebSocket) = async {
                 let! payload = (readWebSocketMessage ws)
-                let relayMsgResult = Encoding.UTF8.GetString payload |> Response.deserialize
-                match relayMsgResult with
-                | Error e -> 0 |> ignore
-                | Ok relayMsg ->
+                payload
+                |> Encoding.UTF8.GetString
+                |> Response.deserialize
+                |> Result.bind (fun relayMsg ->
                     match relayMsg with
                     | Response.RMEvent (subscriptionId, event) ->
-                        fn (event, (verify event)) |> ignore
-                    | Response.RMNotice notice -> 1 |> ignore
-                    | Response.RMACK (eid, s, ack) -> 1 |> ignore
-                    | Response.RMEOSE s -> 1 |> ignore
+                        if (verify event) then
+                            Ok relayMsg
+                        else
+                            Error "Invalid message received"
+                    | _ -> Ok relayMsg
+                    )
+                |> callback
                 do! loop (ws)
             }
             Reader.Reader (fun (ws:WebSocket) -> loop ws)

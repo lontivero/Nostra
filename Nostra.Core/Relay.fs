@@ -3,7 +3,6 @@ namespace Nostra.Core
 open System
 open System.Collections.Generic
 open System.Text
-open Microsoft.VisualBasic.CompilerServices
 open Nostra.Core.Client
 open Thoth.Json.Net
 
