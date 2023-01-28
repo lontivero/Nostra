@@ -45,7 +45,7 @@ module Decode =
                 match (ECXOnlyPubKey.TryCreate byteArray) with
                 | true, pubkey -> Decode.succeed (XOnlyPubKey pubkey)
                 | _ -> Decode.fail "The byte array is not a valid xonly publick key."
-            | invalid -> Decode.fail $"The byte array is not 32 length but %i{invalid.Length / 2}") 
+            | invalid -> Decode.fail $"The value is not an hexa-encoded string or it is not 32 length but %i{invalid.Length / 2}") 
 
     let schnorrSignature : Decoder<SchnorrSignature> =
         Decode.string

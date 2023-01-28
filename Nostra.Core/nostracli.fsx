@@ -1,9 +1,13 @@
 ﻿#r "nuget:NBitcoin.Secp256k1"
-#r "nuget:Chiron"
+#r "nuget:Thoth.Json.Net"
+
+#load "Utils.fs"
+#load "Types.fs"
 #load "Event.fs"
 #load "Client.fs"
 
 #nowarn "2303" // this bug is fixed now but not released yet
+
 
 open System
 open System.Net.WebSockets
@@ -34,7 +38,18 @@ module CommandLine =
        |> List.ofSeq
 
 open System.Threading.Tasks
-open Nostra.Core.Client.Query
+open Nostra.Core.Client.Response
+
+let buildWebSocket (ws: ClientWebSocket) : WebSocket.WebSocket = {
+    write =
+        fun arr ->
+            ws.SendAsync( ArraySegment(arr), WebSocketMessageType.Text, true, CancellationToken.None ) |> Async.AwaitTask
+    read =
+        fun buffer -> async {
+            let! result = ws.ReceiveAsync(ArraySegment(buffer), CancellationToken.None) |> Async.AwaitTask
+            return { Count = result.Count; EndOfMessage = result.EndOfMessage }
+        }
+     }
 
 let args = fsi.CommandLineArgs
 let switchs = CommandLine.parseArgs args
@@ -50,25 +65,43 @@ match switchs with
 | ("listen", _)::rest ->
     let args = Map.ofList rest
     
-    let printEvent (event, valid) =
-        let (XOnlyPubKey pubKey) = event.PubKey
-        let mark = if valid then "!" else "???"
-        Console.WriteLine "---------------------------------------------------------------"
-        Console.WriteLine $"{mark} Kind: {event.Kind}  - Author: {pubKey.ToBytes() |> Utils.toHex}"
-        Console.WriteLine (event.Content)
+    let displayResponse = function
+        | Ok (RMEvent (subscriptionId, event)) ->
+            let (XOnlyPubKey pubKey) = event.PubKey
+            Console.ForegroundColor <- ConsoleColor.Cyan
+            Console.WriteLine $"Kind: {event.Kind}  - Author: {pubKey.ToBytes() |> Utils.toHex}"
+            Console.ForegroundColor <- enum<ConsoleColor> (-1)
+            Console.WriteLine (event.Content.Trim())
+            Console.ForegroundColor <- ConsoleColor.DarkGray
+            Console.WriteLine (event.Tags |> List.map (fun (t, vs) -> $"{t}:{vs}"))
+            Console.WriteLine ()
+
+        | Ok (RMACK(eventId, success, message)) ->
+            Console.ForegroundColor <- ConsoleColor.Green
+            let (EventId eid) = eventId 
+            Console.WriteLine $"Event: {eid |> Utils.toHex} Success: {success} = {message}"
+        | Ok (RMNotice message) ->
+            Console.ForegroundColor <- ConsoleColor.Yellow
+            Console.WriteLine message
+        | Ok (RMEOSE subscriptionId) ->
+            Console.ForegroundColor <- ConsoleColor.DarkGray
+            Console.WriteLine $">>> {subscriptionId} Done"
+        | Error e ->
+            Console.ForegroundColor <- ConsoleColor.Red
+            Console.WriteLine (e.ToString())
 
     async {
         let ws = new ClientWebSocket()
+        let io = buildWebSocket ws
 
         // "wss://nostr-pub.wellorder.net"
         do! ws.ConnectAsync (Uri (args["relay"]), CancellationToken.None) |> Async.AwaitTask
-        let pushToRelay = Client.run (ws : WebSocket) (Client.sender ())
-        let filter = toFilter (AllNotes (DateTime.UtcNow.AddDays(-1)))
-        
+        let pushToRelay = Reader.run io (Client.Communication.sender ())
+        let filter = Client.Request.Filter.FilterUtils.toFilter (Client.Request.Filter.FilterUtils.ClientFilter.AllNotes (DateTime.UtcNow.AddDays(-1)))      
         Client.Request.CMSubscribe ("all", [filter])
         |> pushToRelay
 
-        let receiveLoop = Client.run (ws : WebSocket) (Client.startReceiving printEvent)
+        let receiveLoop = Reader.run io (Client.Communication.startReceiving displayResponse)
         do! receiveLoop 
         
     } |> Async.RunSynchronously
@@ -78,17 +111,18 @@ match switchs with
     let secret = args["secret"] |> Utils.fromHex |> ECPrivKey.Create 
     let recipient = args["to"] |> Utils.fromHex |> ECXOnlyPubKey.Create |> XOnlyPubKey 
     let msg = args["msg"]
-    let dm = createEncryptedDirectMessage recipient secret msg
-    let signedDm = sign secret dm 
+    let dm = Event.createEncryptedDirectMessage recipient secret msg
+    let signedDm = Event.sign secret dm 
 
     let ws = new ClientWebSocket()
+    let io = buildWebSocket ws
     
     ws.ConnectAsync (Uri (args["relay"]), CancellationToken.None)
     |> Async.AwaitTask
     |> Async.RunSynchronously
    
     let (EventId id) = signedDm.Id
-    let pushToRelay = Client.run (ws : WebSocket) (Client.sender ()) 
+    let pushToRelay = Reader.run io (Client.Communication.sender ()) 
     pushToRelay (Client.Request.CMEvent signedDm)
     
     Console.WriteLine (id |> Utils.toHex)

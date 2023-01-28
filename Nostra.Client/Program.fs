@@ -2,39 +2,11 @@
 open System.Net.WebSockets
 open System.Threading
 open Microsoft.FSharp.Control
-open Microsoft.VisualBasic.CompilerServices
+open Nostra.Client
 open Nostra.Core
-open Nostra.Core.Event
 open Nostra.Core.Client
-open Nostra.Core.Client.Request.Filter
-
-let displayResponse = function
-    | Ok (Response.RMEvent (subscriptionId, event)) ->
-        let (XOnlyPubKey pubKey) = event.PubKey
-        Console.ForegroundColor <- ConsoleColor.Cyan
-        Console.WriteLine $"Kind: {event.Kind}  - Author: {pubKey.ToBytes() |> Utils.toHex}"
-        Console.ForegroundColor <- enum<ConsoleColor> (-1)
-        Console.WriteLine (event.Content.Trim())
-        Console.ForegroundColor <- ConsoleColor.DarkGray
-        Console.WriteLine (event.Tags |> List.map (fun (t, vs) -> $"{t}:{vs}"))
-        Console.WriteLine ()
-
-    | Ok (Response.RMACK(eventId, success, message)) ->
-        Console.ForegroundColor <- ConsoleColor.Green
-        let (EventId eid) = eventId 
-        Console.WriteLine $"Event: {eid |> Utils.toHex} Success: {success} = {message}"
-    | Ok (Response.RMNotice message) ->
-        Console.ForegroundColor <- ConsoleColor.Yellow
-        Console.WriteLine message
-    | Ok (Response.RMEOSE subscriptionId) ->
-        Console.ForegroundColor <- ConsoleColor.DarkGray
-        Console.WriteLine $">>> {subscriptionId} Done"
-    | Error e ->
-        Console.ForegroundColor <- ConsoleColor.Red
-        Console.WriteLine (e.ToString())
-    
-
-open Nostra.Core.WebSocket;
+open Nostra.Client.ECashClient
+open Nostra.Core.WebSocket
 
 let buildWebSocket (ws: ClientWebSocket) = {
     write =
@@ -46,41 +18,48 @@ let buildWebSocket (ws: ClientWebSocket) = {
             return { Count = result.Count; EndOfMessage = result.EndOfMessage }
         }
      }
-    
-let Main =
-    
-    let secret = Key.createNewRandom ()
-    
+
+[<EntryPoint>]
+let main argv =
     let uri = Uri("wss://nostr-pub.wellorder.net")
-    //let uri = Uri("ws://127.0.0.1:8080/")
 
     let ws = new ClientWebSocket()
-    async {
-        do! ws.ConnectAsync (uri, CancellationToken.None) |> Async.AwaitTask
-        let ctx = buildWebSocket ws
-        let pushToRelay = Reader.run ctx (Communication.sender ())
+    let ctx = buildWebSocket ws
+    let relay = Reader.run ctx (Communication.sender ())
+
+    let connect = ws.ConnectAsync (uri, CancellationToken.None) |> Async.AwaitTask
+
+    match argv[0] with
+    | "wallet" ->
+        let secret = Key.createNewRandom ()
+        let pubkey = Key.getPubKey secret
+        Console.WriteLine $"My public Key: {(pubkey |> fun x -> x.ToBytes() |> Utils.toHex)}"
+        let protocolHandlerPush = protocolHandlerLoop secret relay
+        let handleProtocolMessages = dispatchProtocolHandler secret protocolHandlerPush
+        let protocolHandlingLoop = Reader.run ctx (Communication.startReceiving handleProtocolMessages)
+        let readCommandFromUserLoop = processUserCommandLoop protocolHandlerPush
          
-        let filter = FilterUtils.toFilter (FilterUtils.ClientFilter.AllNotes (DateTime.UtcNow.AddDays(-1)))
-
-        Request.CMSubscribe ("all", [filter])
-        |> pushToRelay
-
-        let note =
-            createNoteEvent "Hello world!"
-            |> sign secret
+        async {
+            do! connect
+            subscribeToAnnouncements relay
+            subscribeToPayments relay (XOnlyPubKey pubkey)
+            subscribeToDirectMessages relay (XOnlyPubKey pubkey)
             
-        Request.CMEvent note
-        |> pushToRelay
+            do! (Async.Parallel [ protocolHandlingLoop; readCommandFromUserLoop ] |> Async.Ignore)
+        } |> Async.RunSynchronously
 
-        let delete =
-            createDeleteEvent [note.Id] "Because I can" 
-            |> sign secret
+    | "minter" ->
+        let secret = Common.secretFromHex "1adafb0e2e40d3397688f8351acb92d09d5edfe532226b6920a4904123abfad9"
+        let handleProtocolMessages = ECashMinter.dispatchProtocolHandler relay secret 
+        let protocolHandlingLoop = Reader.run ctx (Communication.startReceiving handleProtocolMessages)
 
-        Request.CMEvent delete
-        |> pushToRelay
+        async {
+            do! connect
+            ECashMinter.subscribeToDirectMessagesToMinter relay
+            ECashMinter.announceParameters relay secret
 
-        let receiveLoop = Reader.run ctx (Communication.startReceiving displayResponse)
-        do! receiveLoop
-       
-    } |> Async.RunSynchronously
-
+            do! protocolHandlingLoop
+        } |> Async.RunSynchronously
+    | _ ->
+        Console.WriteLine "Only 'wallet' and 'minter' are valid arguments."
+    0

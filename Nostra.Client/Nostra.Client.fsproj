@@ -13,6 +13,10 @@
     </PropertyGroup>
 
     <ItemGroup>
+        <Compile Include="WabiSabi.fs" />
+        <Compile Include="Common.fs" />
+        <Compile Include="ECashClient.fs" />
+        <Compile Include="ECashMinter.fs" />
         <Compile Include="Program.fs" />
     </ItemGroup>
 

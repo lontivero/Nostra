@@ -18,12 +18,12 @@ module Encryption =
         let iv = RandomNumberGenerator.GetBytes(16)
         let aes = Aes.Create(Key = encryptionKey, IV = iv)
         let plainTextBytes = ReadOnlySpan (Encoding.UTF8.GetBytes(plainText))
-        let cipherTextBytes = aes.EncryptCbc (plainTextBytes, iv)
+        let cipherTextBytes = aes.EncryptCbc (plainTextBytes, iv, PaddingMode.PKCS7)
         iv, cipherTextBytes
         
     let decrypt (decryptionKey: byte[]) (iv: byte[]) (cipherTextBytes: byte[]) =
         let aes = Aes.Create(Key = decryptionKey, IV = iv)
-        aes.DecryptCbc (cipherTextBytes, iv)
+        aes.DecryptCbc (cipherTextBytes, iv, PaddingMode.PKCS7)
         |> Encoding.UTF8.GetString
 
 module Event =

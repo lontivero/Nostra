@@ -56,7 +56,9 @@ module Client =
                      | LinkedEvents of EventId list * DateTime
                      | AllNotes of DateTime
                      | AllMetadata of DateTime
-                     | DirectMessageFilter of XOnlyPubKey
+                     | DirectMessageFromFilter of XOnlyPubKey * XOnlyPubKey 
+                     | DirectMessageToFilter of XOnlyPubKey
+                     | Custom of Filter
 
                 let singleton : Filter = {
                      Ids = []
@@ -98,10 +100,18 @@ module Client =
                         { singleton with
                             Kinds = [Kind.Metadata]
                             Until = Some until }
-                    | DirectMessageFilter from ->
+                    | DirectMessageFromFilter (from, ``to``) ->
                         { singleton with
                             Kinds = [Kind.Encrypted]
-                            Authors = [from] }
+                            Authors = [from]
+                            PubKeys = [``to``]
+                            }
+                    | DirectMessageToFilter ``to`` ->
+                        { singleton with
+                            Kinds = [Kind.Encrypted]
+                            PubKeys = [``to``]
+                            Since = Some (DateTime.UtcNow) }
+                    | Custom f -> f
 
         type ClientMessage =
             | CMEvent of Event
