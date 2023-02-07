@@ -1,5 +1,5 @@
 ﻿#r "nuget:NBitcoin.Secp256k1"
-#r "nuget:Chiron"
+
 #load "Event.fs"
 #load "Client.fs"
 
