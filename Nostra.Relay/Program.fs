@@ -2,17 +2,17 @@
 open System.Collections.Generic
 open System.Threading
 open Microsoft.FSharp.Control
-open Nostra.Core.Relay.Communication
 open Suave
 open Suave.Sockets
 open Suave.Sockets.Control
 open Suave.WebSocket
 open Thoth.Json.Net
-open Nostra.Core
-open Nostra.Core.Event
-open Nostra.Core.Relay
+open Nostra
+open Nostra.Event
+open Nostra.Relay
 open Relay.Request
 open Relay.Response
+open Nostra.Relay.Communication
 
 let webSocketHandler (eventStore:EventStore) (webSocket : WebSocket) (context: HttpContext) =
 
@@ -130,21 +130,20 @@ let app : WebPart =
                         eventStore.getEvents [filter]
                         |> List.map Encode.event
                         |> Encode.list
-                        |> Encode.toCompactString
+                        |> Encode.toCanonicalForm
                     OK serialized ctx
                 | Result.Error e -> BAD_REQUEST e ctx
     ]
 
 [<EntryPoint>]
-let main argv = 
-  let cts = new CancellationTokenSource()
-  let conf = { defaultConfig with cancellationToken = cts.Token }
-  let listening, server = startWebServerAsync conf app
-  
-  Async.Start(server, cts.Token)
-  printfn "Make requests now"
-  Console.ReadKey true |> ignore
-    
-  cts.Cancel()
+let main argv =
+    let cts = new CancellationTokenSource()
+    let conf = { defaultConfig with cancellationToken = cts.Token }
+    let listening, server = startWebServerAsync conf app
 
-  0 // return an integer exit code    
+    Async.Start(server, cts.Token)
+    printfn "Make requests now"
+    Console.ReadKey true |> ignore  
+    cts.Cancel()
+
+    0 // return an integer exit code    

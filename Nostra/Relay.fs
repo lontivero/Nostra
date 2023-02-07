@@ -1,13 +1,13 @@
-namespace Nostra.Core
+namespace Nostra
 
 open System
 open System.Collections.Generic
 open System.Text
-open Nostra.Core.Client
+open Nostra.Client
 open Thoth.Json.Net
 
 module Relay =
-    open Nostra.Core.Event
+    open Nostra.Event
     
     type StoredEvent = {
         Id: string
@@ -148,7 +148,7 @@ module Relay =
                         ("EOSE", subscriptionId)
 
         let serialize (msg: RelayMessage) =
-            msg |> Encode.relayMessage |> Encode.toCompactString
+            msg |> Encode.relayMessage |> Encode.toCanonicalForm
 
         let toPayload (msg: RelayMessage) =
             msg

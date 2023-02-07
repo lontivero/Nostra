@@ -1,4 +1,4 @@
-﻿namespace Nostra.Core
+﻿namespace Nostra
 
 open System
 open System.Security.Cryptography
@@ -8,7 +8,11 @@ open Thoth.Json.Net
 
 module Key =
     let createNewRandom () =
-        ECPrivKey.TryCreate( ReadOnlySpan(RandomNumberGenerator.GetBytes(32))) |> snd
+        fun _ -> ECPrivKey.TryCreate( ReadOnlySpan(RandomNumberGenerator.GetBytes(32)))
+        |> Seq.initInfinite
+        |> Seq.skipWhile(fun (succeed, key) -> not succeed)
+        |> Seq.map snd
+        |> Seq.head
 
     let getPubKey (secret: ECPrivKey) =
         secret.CreateXOnlyPubKey()
@@ -90,7 +94,7 @@ module Event =
             ]
             
     let serializeForEventId (pubkey: XOnlyPubKey) (event: UnsignedEvent) = 
-        Encode.toCompactString (
+        Encode.toCanonicalForm (
             Encode.list [
               Encode.int 0
               Encode.xOnlyPubkey pubkey

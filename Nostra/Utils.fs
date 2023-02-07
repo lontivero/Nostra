@@ -1,4 +1,4 @@
-namespace Nostra.Core
+namespace Nostra
 
 open System
 
@@ -18,16 +18,33 @@ module Utils =
             Some (fromHex s)
         | _ -> None
         
-module Reader =
+module Monad =
     type Reader<'environment,'a> = Reader of ('environment -> 'a)
 
-    let run environment (Reader action) =  
+    let injectedWith environment (Reader action) =  
         let resultOfAction = action environment 
         resultOfAction
+            
     
-module WebSocket =
+module ClientContext =
+    type Reader<'a> = unit -> 'a
+    type AsyncReader<'a> = unit -> Async<'a>
+    type Writer<'a> = 'a -> unit
+    type AsyncWriter<'a> = 'a -> Async<unit>
+
     type WebSocketResult = { Count: int; EndOfMessage:  bool }
-    type WebSocket = {
+    type IOWebSocket = {
         read: byte[] -> Async<WebSocketResult>
-        write: byte[] -> Async<unit>
+        write: AsyncWriter<byte[]>
+    }
+
+    type IOLogger = {
+        logInfo: Writer<string>
+        logDebug: Writer<string>
+        logError: Writer<string>
+    }
+
+    type Context = {
+        WebSocket: IOWebSocket
+        Logger: IOLogger
     }

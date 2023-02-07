@@ -1,10 +1,12 @@
 ﻿
 Microsoft Visual Studio Solution File, Format Version 12.00
-Project("{F2A71F9B-5D33-465A-A702-920D77279786}") = "Nostra.Core", "Nostra.Core\Nostra.Core.fsproj", "{3EDDAD48-02DC-4758-A496-A2BB675032DD}"
+Project("{F2A71F9B-5D33-465A-A702-920D77279786}") = "Nostra", "Nostra\Nostra.fsproj", "{3EDDAD48-02DC-4758-A496-A2BB675032DD}"
 EndProject
 Project("{F2A71F9B-5D33-465A-A702-920D77279786}") = "Nostra.Client", "Nostra.Client\Nostra.Client.fsproj", "{DADB4327-3BF2-4BFB-98C7-04A39B13DE88}"
 EndProject
 Project("{F2A71F9B-5D33-465A-A702-920D77279786}") = "Nostra.Relay", "Nostra.Relay\Nostra.Relay.fsproj", "{44C7D9F3-67FC-4575-8517-3D7EEA79DAA3}"
+EndProject
+Project("{F2A71F9B-5D33-465A-A702-920D77279786}") = "Nostra.Tests", "Nostra.Tests\Nostra.Tests.fsproj", "{36AE25AA-6314-4D66-A758-4442FE616BEE}"
 EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
@@ -24,5 +26,9 @@ Global
 		{44C7D9F3-67FC-4575-8517-3D7EEA79DAA3}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{44C7D9F3-67FC-4575-8517-3D7EEA79DAA3}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{44C7D9F3-67FC-4575-8517-3D7EEA79DAA3}.Release|Any CPU.Build.0 = Release|Any CPU
+		{36AE25AA-6314-4D66-A758-4442FE616BEE}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{36AE25AA-6314-4D66-A758-4442FE616BEE}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{36AE25AA-6314-4D66-A758-4442FE616BEE}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{36AE25AA-6314-4D66-A758-4442FE616BEE}.Release|Any CPU.Build.0 = Release|Any CPU
 	EndGlobalSection
 EndGlobal

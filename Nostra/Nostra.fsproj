@@ -3,6 +3,7 @@
     <PropertyGroup>
         <TargetFramework>net6.0</TargetFramework>
         <GenerateDocumentationFile>false</GenerateDocumentationFile>
+        <RootNamespace>Nostra.Core</RootNamespace>
     </PropertyGroup>
 
     <ItemGroup>
@@ -11,7 +12,6 @@
         <Compile Include="Event.fs" />
         <Compile Include="Client.fs" />
         <Compile Include="Relay.fs" />
-        <Content Include="todo.txt" />
     </ItemGroup>
 
     <ItemGroup>

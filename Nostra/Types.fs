@@ -1,4 +1,4 @@
-namespace Nostra.Core
+namespace Nostra
 
 open System
 open Utils
@@ -36,7 +36,7 @@ module Decode =
         Decode.string
         |> Decode.andThen (function
             | Base64 64 byteArray -> Decode.succeed (EventId byteArray)
-            | invalid -> Decode.fail $"The byte array is not 32 length but %i{invalid.Length / 2}") 
+            | invalid -> Decode.fail $"EventId is invalid. The byte array is not 32 length but %i{invalid.Length / 2}") 
 
     let xOnlyPubkey : Decoder<XOnlyPubKey> =
         Decode.string
@@ -45,7 +45,7 @@ module Decode =
                 match (ECXOnlyPubKey.TryCreate byteArray) with
                 | true, pubkey -> Decode.succeed (XOnlyPubKey pubkey)
                 | _ -> Decode.fail "The byte array is not a valid xonly publick key."
-            | invalid -> Decode.fail $"The byte array is not 32 length but %i{invalid.Length / 2}") 
+            | invalid -> Decode.fail $"XOnlyPubKey is invalid. The byte array is not 32 length but %i{invalid.Length / 2}") 
 
     let schnorrSignature : Decoder<SchnorrSignature> =
         Decode.string
@@ -54,7 +54,7 @@ module Decode =
                 match (SecpSchnorrSignature.TryCreate byteArray) with
                 | true, signature -> Decode.succeed (SchnorrSignature signature)
                 | _ -> Decode.fail "The byte array is not a valid schnorr signature."
-            | invalid -> Decode.fail $"The byte array is not 64 length but %i{invalid.Length / 2}")
+            | invalid -> Decode.fail $"SchnorrSignature is invalid. The byte array is not 64 length but %i{invalid.Length / 2}")
 
     let tag : Decoder<Tag> =
         Decode.list Decode.string
@@ -82,7 +82,7 @@ module Encode =
         let key, values = tag
         Encode.list ([ Encode.string key ] @ (values |> List.map Encode.string)) 
 
-    let toCompactString (token: JsonValue) : string =
+    let toCanonicalForm (token: JsonValue) : string =
          use stream = new StringWriter(NewLine = "")
          use jsonWriter = new JsonTextWriter(
                                  stream,

@@ -2,11 +2,10 @@
 open System.Net.WebSockets
 open System.Threading
 open Microsoft.FSharp.Control
-open Microsoft.VisualBasic.CompilerServices
-open Nostra.Core
-open Nostra.Core.Event
-open Nostra.Core.Client
-open Nostra.Core.Client.Request.Filter
+open Nostra
+open Nostra.Event
+open Nostra.Client
+open Nostra.Client.Request.Filter
 
 let displayResponse = function
     | Ok (Response.RMEvent (subscriptionId, event)) ->
@@ -34,19 +33,6 @@ let displayResponse = function
         Console.WriteLine (e.ToString())
     
 
-open Nostra.Core.WebSocket;
-
-let buildWebSocket (ws: ClientWebSocket) = {
-    write =
-        fun arr ->
-            ws.SendAsync( ArraySegment(arr), WebSocketMessageType.Text, true, CancellationToken.None ) |> Async.AwaitTask
-    read =
-        fun buffer -> async {
-            let! result = ws.ReceiveAsync(ArraySegment(buffer), CancellationToken.None) |> Async.AwaitTask
-            return { Count = result.Count; EndOfMessage = result.EndOfMessage }
-        }
-     }
-    
 let Main =
     
     let secret = Key.createNewRandom ()
@@ -55,13 +41,13 @@ let Main =
     //let uri = Uri("ws://127.0.0.1:8080/")
 
     let ws = new ClientWebSocket()
-    async {
-        do! ws.ConnectAsync (uri, CancellationToken.None) |> Async.AwaitTask
-        let ctx = buildWebSocket ws
-        let pushToRelay = Reader.run ctx (Communication.sender ())
-         
-        let filter = FilterUtils.toFilter (FilterUtils.ClientFilter.AllNotes (DateTime.UtcNow.AddDays(-1)))
+    let ctx = Communication.buildContext ws Console.Out
+    let pushToRelay = Monad.injectedWith ctx (Communication.sender ())
+    let receiveLoop = Monad.injectedWith ctx (Communication.startReceiving displayResponse)
+    let filter = FilterUtils.toFilter (FilterUtils.ClientFilter.AllNotes (DateTime.UtcNow.AddDays(-1)))
 
+    let workflow = async {
+        do! ws.ConnectAsync (uri, CancellationToken.None) |> Async.AwaitTask
         Request.CMSubscribe ("all", [filter])
         |> pushToRelay
 
@@ -79,8 +65,9 @@ let Main =
         Request.CMEvent delete
         |> pushToRelay
 
-        let receiveLoop = Reader.run ctx (Communication.startReceiving displayResponse)
         do! receiveLoop
-       
-    } |> Async.RunSynchronously
+    }
+    
+    use globalCancellationTokenSource = new CancellationTokenSource()
+    Async.RunSynchronously (workflow, cancellationToken= globalCancellationTokenSource.Token)
 
