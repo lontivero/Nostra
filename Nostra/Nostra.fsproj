@@ -7,6 +7,7 @@
     </PropertyGroup>
 
     <ItemGroup>
+        <Compile Include="Bech32.fs" />
         <Compile Include="Utils.fs" />
         <Compile Include="Types.fs" />
         <Compile Include="Event.fs" />
