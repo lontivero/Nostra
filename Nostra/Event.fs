@@ -10,7 +10,7 @@ module Key =
     let createNewRandom () =
         fun _ -> ECPrivKey.TryCreate( ReadOnlySpan(RandomNumberGenerator.GetBytes(32)))
         |> Seq.initInfinite
-        |> Seq.skipWhile(fun (succeed, key) -> not succeed)
+        |> Seq.skipWhile(fun (succeed, _) -> not succeed)
         |> Seq.map snd
         |> Seq.head
 
@@ -114,7 +114,7 @@ module Event =
     let createNoteEvent content =
         createEvent Kind.Text [] content
         
-    let createReplyEvent (replyTo: EventId) (pubkey: XOnlyPubKey) content =
+    let createReplyEvent (replyTo: EventId) content =
         createEvent Kind.Text [replyTag replyTo ""] content
 
     let createDeleteEvent (ids: EventId list) content =

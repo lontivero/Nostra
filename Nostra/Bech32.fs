@@ -1,11 +1,9 @@
 namespace Nostra
 
 module Bech32 =
-    type Word5 = byte
-    type Word8 = byte
     type HRP = string
 
-    let toWord5 (x:int) : Word5 = byte (x &&& 31) 
+    let toWord5 (x:int) = byte (x &&& 31) 
 
     let charset = "qpzry9x8gf2tvdw0s3jn54khce6mua7l"
     let charsetRev = 
@@ -30,12 +28,12 @@ module Bech32 =
             let chk = ((chk &&& 0x1ffffff) <<< 5) ^^^ int v
             let chk =
                 (chk,[0..4])
-                ||> List.fold (fun chk i -> if (b >>> i) &&& 1 = 1 then chk ^^^ generator.[i] else chk)
+                ||> List.fold (fun chk i -> if (b >>> i) &&& 1 = 1 then chk ^^^ generator[i] else chk)
             chk
         )
 
     let hrpExpand (hrp: HRP) =
-        [for x in hrp do  byte (x) >>> 5 ] @ [0uy] @ [for x in hrp do byte x &&& 31uy]
+        [for x in hrp do  byte x >>> 5 ] @ [0uy] @ [for x in hrp do byte x &&& 31uy]
 
     let verifyChecksum hrp data =
         let hrpExpanded = hrp |> hrpExpand
@@ -47,12 +45,12 @@ module Bech32 =
         | 0, _, result -> result
         | _, padValue, result -> [padValue] :: result
 
-    let noPadding bits padValue result = 
+    let noPadding _ _ result = 
         result
 
-    let convertBits (data: Word8 list) fromBits toBits (pad: Pad) =
+    let convertBits (data: byte list) fromBits toBits (pad: Pad) =
         let maxValue = (1 <<< toBits) - 1
-        let (result, acc, bits) =
+        let result, acc, bits =
             data 
             |> List.fold (fun (result, acc, bits) value ->
                 let acc' = (acc <<< fromBits) ||| int value
@@ -64,11 +62,11 @@ module Bech32 =
         |> List.rev
         |> List.concat
 
-    let toBase32 data : Word5 list =
+    let toBase32 data : byte list =
         convertBits data 8 5 yesPadding
         |> List.map toWord5
 
-    let toBase256 data : Word8 list =
+    let toBase256 data : byte list =
         convertBits data 5 8 noPadding
         |> List.map byte
 
@@ -78,7 +76,7 @@ module Bech32 =
         let polymod = (polymod (values @ padx)) ^^^ 1
         [for i in [0..5] do toWord5 (polymod >>> 5 * (5 - i)) ]
 
-    let encode hrp data =
+    let encode hrp data : string =
         let data = toBase32 data
         let encoded = 
             (data @ createChecksum hrp data)

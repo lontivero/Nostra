@@ -1,9 +1,11 @@
 ﻿#r "nuget:NBitcoin.Secp256k1"
+#r "nuget:Thoth.Json.Net"
 
+#load "Utils.fs"
+#load "Bech32.fs"
+#load "Types.fs"
 #load "Event.fs"
 #load "Client.fs"
-
-#nowarn "2303" // this bug is fixed now but not released yet
 
 open System
 open System.Net.WebSockets
@@ -11,7 +13,9 @@ open System.Threading
 open Microsoft.FSharp.Collections
 open Microsoft.FSharp.Control
 open NBitcoin.Secp256k1
-open Nostra.Core
+open Nostra
+open Nostra.Client
+open Nostra.Client.Response
 
 module CommandLine =
     open System.Text.RegularExpressions
@@ -34,7 +38,9 @@ module CommandLine =
        |> List.ofSeq
 
 open System.Threading.Tasks
-open Nostra.Core.Client.Query
+open Nostra.Monad
+open Nostra.Event
+open Nostra.Client.Request.Filter.FilterUtils
 
 let args = fsi.CommandLineArgs
 let switchs = CommandLine.parseArgs args
@@ -43,32 +49,45 @@ match switchs with
 | ("genkey", _)::rest ->
     let secret = Key.createNewRandom ()
     let secretBytes = Array.zeroCreate 32
+    let pubKeyBytes = secret |> Key.getPubKey |> (fun x -> x.ToBytes())
     secret.WriteToSpan (Span secretBytes)
-    Console.WriteLine ($"secret: {Utils.toHex secretBytes}")
-    Console.WriteLine ($"pubkey: {secret |> Key.getPubKey |> (fun x -> x.ToBytes()) |> Utils.toHex}")
+    
+    let nsec = "nsec"
+    let npub = "npub"
+    Console.WriteLine ($"secret: hex    {Utils.toHex secretBytes}")
+    Console.WriteLine ($"        bech32 {Bech32.encode nsec (secretBytes |> Array.toList)}")
+    Console.WriteLine ($"pubkey: hex    {Utils.toHex pubKeyBytes}")
+    Console.WriteLine ($"        bech32 {Bech32.encode npub (pubKeyBytes |> Array.toList)}")
     0
 | ("listen", _)::rest ->
     let args = Map.ofList rest
     
-    let printEvent (event, valid) =
-        let (XOnlyPubKey pubKey) = event.PubKey
-        let mark = if valid then "!" else "???"
-        Console.WriteLine "---------------------------------------------------------------"
-        Console.WriteLine $"{mark} Kind: {event.Kind}  - Author: {pubKey.ToBytes() |> Utils.toHex}"
-        Console.WriteLine (event.Content)
+    let printEvent (eventResult) =
+        match eventResult with
+        | Ok relayMessage ->
+            match relayMessage with
+            | RMEvent (id, event) ->
+                let (XOnlyPubKey pubKey) = event.PubKey
+                Console.WriteLine "---------------------------------------------------------------"
+                Console.WriteLine $"Kind: {event.Kind}  - Author: {pubKey.ToBytes() |> Utils.toHex}"
+                Console.WriteLine (event.Content)
+            | _ ->
+                Console.WriteLine "- other -"
+        | Error e -> Console.WriteLine (e.ToString())
 
     async {
         let ws = new ClientWebSocket()
 
         // "wss://nostr-pub.wellorder.net"
         do! ws.ConnectAsync (Uri (args["relay"]), CancellationToken.None) |> Async.AwaitTask
-        let pushToRelay = Client.run (ws : WebSocket) (Client.sender ())
+        let ctx = Client.Communication.buildContext ws Console.Out
+        let pushToRelay = injectedWith ctx (Client.Communication.sender ())
         let filter = toFilter (AllNotes (DateTime.UtcNow.AddDays(-1)))
         
         Client.Request.CMSubscribe ("all", [filter])
         |> pushToRelay
 
-        let receiveLoop = Client.run (ws : WebSocket) (Client.startReceiving printEvent)
+        let receiveLoop = injectedWith ctx (Client.Communication.startReceiving printEvent)
         do! receiveLoop 
         
     } |> Async.RunSynchronously
@@ -88,7 +107,8 @@ match switchs with
     |> Async.RunSynchronously
    
     let (EventId id) = signedDm.Id
-    let pushToRelay = Client.run (ws : WebSocket) (Client.sender ()) 
+    let ctx = Client.Communication.buildContext ws Console.Out
+    let pushToRelay = injectedWith ctx (Client.Communication.sender ()) 
     pushToRelay (Client.Request.CMEvent signedDm)
     
     Console.WriteLine (id |> Utils.toHex)
