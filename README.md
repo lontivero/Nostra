@@ -12,7 +12,7 @@ NOTE: This is a work in progress!
 ```
 $ dotnet fsi nostracli.fsx genkey
 
-secret: 65efca3c243e4132afbfc7e30fbc41d8d3698d26d11d816bc24a7787aa57f0dc
+secret: supersecretkey
 pubkey: dc04a357c5ef17dd9ca245b7fa24842fc227a5b86a57f5d6a36a8d4443c21014
 ```
 
