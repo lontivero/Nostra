@@ -1,7 +1,10 @@
-﻿open System
+﻿module Relay
+
+open System
 open System.Collections.Generic
 open System.Threading
 open Microsoft.FSharp.Control
+open FsToolkit.ErrorHandling
 open Suave
 open Suave.Sockets
 open Suave.Sockets.Control
@@ -12,38 +15,40 @@ open Nostra.Event
 open Nostra.Relay
 open Relay.Request
 open Relay.Response
-open Nostra.Relay.Communication
+open EventStore
+open YoLo
 
-let webSocketHandler (eventStore: EventStore) (webSocket: WebSocket) (context: HttpContext) =
+let webSocketHandler (eventStore:EventStore) (webSocket : WebSocket) (context: HttpContext) =
 
     let subscriptions = Dictionary<SubscriptionId, Filter list>()
 
-    let processRequest requestText =
-        deserialize requestText
-        |> Result.bind (function
-            | CMEvent event ->
-                if verify event then
-                    eventStore.storeEvent event
+    let processRequest requestText = asyncResult {
+        let! request =
+            deserialize requestText
+            |> Result.mapError (fun e -> Exception e)
 
-                    Ok [ RMAck(event.Id, true, "added") ]
-                else
-                    Ok [ RMAck(event.Id, false, "invalid: the signature is incorrect") ]
-
-            | CMSubscribe(subscriptionId, filters) ->
-                let subscriptionFilters = filters
-                subscriptions.Add(subscriptionId, subscriptionFilters)
-                let matchingEvents = eventStore.getEvents subscriptionFilters
-
-                let rmEvents =
-                    matchingEvents
-                    |> List.map (fun e -> RMEvent( subscriptionId, e))
-                    |> List.rev
-                Ok <| (RMEOSE subscriptionId) :: rmEvents
-
-            | CMUnsubscribe subscriptionId ->
-                subscriptions.Remove subscriptionId |> ignore
-                Ok []
-            )
+        match request with
+        | CMEvent event ->
+            if verify event then
+                eventStore.storeEvent event
+                return! Ok [ RMAck (event.Id, true, "added") ]
+            else
+                return! Ok [ RMAck (event.Id, false, "invalid: the signature is incorrect") ]
+                
+        | CMSubscribe(subscriptionId, filters) ->
+            subscriptions.Add( subscriptionId, filters )
+            let! matchingEvents = eventStore.getEvents filters
+            let eventsFromDb =
+                matchingEvents
+                |> List.map (fun e -> RMEvent(subscriptionId, e))
+                |> List.rev
+            let messages = (RMEOSE subscriptionId) :: eventsFromDb
+            return! Ok messages
+            
+        | CMUnsubscribe subscriptionId ->
+            subscriptions.Remove subscriptionId |> ignore
+            return! Ok []
+        }
     
     let send = 
         let worker =
@@ -62,35 +67,39 @@ let webSocketHandler (eventStore: EventStore) (webSocket: WebSocket) (context: H
     let onEvents =
         eventStore.afterEventStored.Subscribe(fun event ->
             subscriptions
-            |> Seq.map (fun (KeyValue(s, fs)) -> s, Filter.eventMatchesAnyFilter fs event)
-            |> Seq.tryFind (fun (_, m) -> m = true)
-            |> Option.iter (fun (subscriptionId, _) -> sendFinal (RMEvent(subscriptionId, event.Event))))
+            |> Seq.map (fun (KeyValue(s,fs)) -> s, Filter.eventMatchesAnyFilter fs event)
+            |> Seq.tryFind(fun (_, m) -> m = true)
+            |> Option.iter (fun (subscriptionId, _) ->
+                sendFinal (RMEvent (subscriptionId, event.Serialized))))
 
-    let rec loop () =
-        socket {
-            let! msg = webSocket.read ()
-
-            match msg with
-            | Text, data, true ->
-                let requestText = UTF8.toString data
-
-                match processRequest requestText with
-                | Ok [] -> 0 |> ignore
-                | Ok(final :: messages) ->
-                    messages |> List.rev |> List.iter sendAndContinue
+    let rec loop () = socket {
+        let! msg = webSocket.read()
+        match msg with
+        | Text, data, true ->
+            let requestText = UTF8.toString data
+            let r = asyncResult {
+                let! relayMessages = processRequest requestText
+                match relayMessages with
+                | [ ] -> return ()
+                | (final::messages) ->
+                    messages
+                    |> List.rev
+                    |> List.iter sendAndContinue
                     sendFinal final
-                | Error e -> sendFinal (RMNotice e)
-
-                return! loop ()
-            | Close, _, _ ->
-                onEvents.Dispose()
-                let emptyResponse = [||] |> ByteSegment
-                do! webSocket.send Close emptyResponse true
-            | _ -> return! loop ()
-        }
-
+                    return ()
+            }
+            r |> Async.RunSynchronously |> ignore
+            return! loop()
+        | Close, _, _ ->
+            onEvents.Dispose()
+            let emptyResponse = [||] |> ByteSegment
+            do! webSocket.send Close emptyResponse true
+        | _ ->
+            return! loop()
+    }
+    
     loop ()
-
+    
 open Suave.Operators
 open Suave.Filters
 open Suave.RequestErrors
@@ -103,37 +112,50 @@ let relayInformationDocument =
     >=> Writers.setHeader "Access-Control-Allow-Headers" "*"
     >=> Writers.setHeader "Access-Control-Allow-Methods" "*"
 
-let app: WebPart =
-    let eventStore = EventStore()
+let app : WebPart =
+    // let dbconnection = Database.connection "Data Source=:memory:"
+    let dbconnection = Database.connection "Data Source=mydb.db"
+
+    Database.createTables dbconnection
+    let saveEvent = Database.saveEvent dbconnection
+    let deleteEvents = Database.deleteEvents dbconnection
+    let fetchEvents = Database.fetchEvents dbconnection
+    
+    let eventStore = EventStore(saveEvent, deleteEvents, fetchEvents)
     let ws = webSocketHandler eventStore
 
-    let handle fCont (ctx: HttpContext) =
-        let acceptHeader = ctx.request.header ("Accept")
-        let upgradeHeader = ctx.request.header ("Upgrade")
-
+    let handle fCont (ctx : HttpContext) =
+        let acceptHeader = ctx.request.header("Accept")
+        let upgradeHeader = ctx.request.header("Upgrade")
         match acceptHeader, upgradeHeader with
         | Choice1Of2 "application/nostr+json", _ -> relayInformationDocument ctx
         | _, Choice1Of2 "websocket" -> handShake fCont ctx
-        | _ -> OK "Use a Nostr client" ctx
+        | _ -> OK "Use a Nostr client" ctx 
+            
+    choose [
+        path "/" >=> handle ws
+        POST >=> path "/api/req" >=> 
+            fun ctx ->
+                let filterResult =
+                    UTF8.toString ctx.request.rawForm
+                    |> Decode.fromString Filter.Decode.filter
+                    
+                match filterResult with
+                | Ok filter ->
+                    asyncResult {
+                        let! events = eventStore.getEvents [filter]
+                        return events
+                        |> List.map Encode.string
+                        |> Encode.list
+                        |> Encode.toCanonicalForm
+                    }
+                    |> Async.RunSynchronously
+                    |> function
+                    | Ok events -> OK events ctx
+                    | Error e -> ServerErrors.INTERNAL_ERROR (e.ToString()) ctx
 
-    choose
-        [ path "/" >=> handle ws
-          POST
-          >=> path "/api/req"
-          >=> fun ctx ->
-              let filterResult =
-                  UTF8.toString ctx.request.rawForm |> Decode.fromString Filter.Decode.filter
-
-              match filterResult with
-              | Result.Ok filter ->
-                  let serialized =
-                      eventStore.getEvents [ filter ]
-                      |> List.map Encode.event
-                      |> Encode.list
-                      |> Encode.toCanonicalForm
-
-                  OK serialized ctx
-              | Result.Error e -> BAD_REQUEST e ctx ]
+                | Result.Error e -> BAD_REQUEST e ctx
+    ]
 
 [<EntryPoint>]
 let main argv =
@@ -143,7 +165,7 @@ let main argv =
 
     Async.Start(server, cts.Token)
     printfn "Make requests now"
-    Console.ReadKey true |> ignore
+    Console.ReadKey true |> ignore  
     cts.Cancel()
 
-    0 // return an integer exit code
+    0 // return an integer exit code    

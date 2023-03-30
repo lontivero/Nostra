@@ -6,6 +6,8 @@
     </PropertyGroup>
 
     <ItemGroup>
+        <Compile Include="Database.fs" />
+        <Compile Include="EventStore.fs" />
         <Compile Include="Program.fs" />
     </ItemGroup>
 
