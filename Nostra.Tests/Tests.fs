@@ -22,37 +22,33 @@ type EchoServerFixture() =
     interface IDisposable with
         member this.Dispose() = cts.Cancel()
 
-type ``Client tests``(output: ITestOutputHelper) =
+type ``Client tests``(output:ITestOutputHelper) =
     let createRelayMessage susbcriptionId event =
-        Relay.Response.RMEvent(susbcriptionId, event) |> Relay.Response.serialize
+        Relay.Response.RMEvent (susbcriptionId, event)
+        |> Relay.Response.serialize
 
     [<Fact>]
-    let ``Can receive encrypted messages`` () =
-        async {
-            let! send, receive = Client.createClient ()
-            let secret = Key.createNewRandom ()
-            let pubkey = Key.getPubKey secret |> XOnlyPubKey
+    let ``Can receive encrypted messages`` () = async {
+        let! send, receive = Client.createClient ()
+        let secret = Key.createNewRandom ()
+        let pubkey = Key.getPubKey secret |> XOnlyPubKey 
+        let event = Event.createEncryptedDirectMessage pubkey secret "hello" |> Event.sign secret
+        do! send (createRelayMessage "sid" (Event.serialize event))
+        
+        event.Content |> should not' (equal "hello", "The note is not encrypted")
+        event.Content |> should haveSubstring "?iv="
 
-            let event =
-                Event.createEncryptedDirectMessage pubkey secret "hello" |> Event.sign secret
-
-            do! send (createRelayMessage "sid" event)
-
-            event.Content |> should not' (equal "hello", "The note is not encrypted")
-            event.Content |> should haveSubstring "?iv="
-
-            let! msg = receive
-
-            expectEvent msg (fun _ encryptedEvent ->
-                let decryptedContent = Event.decryptDirectMessage secret encryptedEvent
-                decryptedContent |> should equal "hello")
-        }
-
+        let! msg = receive
+        expectEvent msg (fun _ encryptedEvent ->
+            let decryptedContent = Event.decryptDirectMessage secret encryptedEvent
+            decryptedContent |> should equal "hello")
+    } 
+            
     [<Fact>]
     let ``Can receive a valid event from relay`` () = async {
         let! send, receive = Client.createClient ()
-        let event = Event.createNoteEvent "Welcome" |> Event.sign (Key.createNewRandom ())
-        do! send (createRelayMessage "sid" event)
+        let event = Event.createNoteEvent "Welcome" |> Event.sign (Key.createNewRandom())
+        do! send (createRelayMessage "sid" (Event.serialize event))
 
         let! msg = receive
         expectEvent msg (fun subscriptionId event ->
@@ -61,53 +57,38 @@ type ``Client tests``(output: ITestOutputHelper) =
     } 
 
     [<Fact>]
-    let ``Can detect invalid (non-authentic) events`` () =
-        async {
-            let! send, receive = Client.createClient ()
-            let event = Event.createNoteEvent "Welcome" |> Event.sign (Key.createNewRandom ())
+    let ``Can detect invalid (non-authentic) events`` () = async {
+        let! send, receive = Client.createClient ()
+        let event = Event.createNoteEvent "Welcome" |> Event.sign (Key.createNewRandom())
+        let modifiedEvent = { event with Content = event.Content.Replace("Welcome","Bienvenido") }
+        do! send (createRelayMessage "sid" (Event.serialize modifiedEvent))
 
-            let modifiedEvent =
-                { event with
-                    Content = event.Content.Replace("Welcome", "Bienvenido") }
-
-            do! send (createRelayMessage "sid" modifiedEvent)
-
-            let! msg = receive
-
-            match msg with
-            | Ok _ -> failwith "It should have detected the event is invalid"
-            | Error error -> error |> should equal "Invalid message received"
-        }
+        let! msg = receive
+        match msg with
+        | Ok _ -> failwith "It should have detected the event is invalid"
+        | Error error -> error |> should equal "Invalid message received"
+    }
 
     [<Fact>]
-    let ``Fails with malformed relay messages`` () =
-        async {
-            let! send, receive = Client.createClient ()
-            do! send """["EVENT","14846312514583623"]"""
+    let ``Fails with malformed relay messages`` () = async {
+        let! send, receive = Client.createClient ()
+        do! send """["EVENT","14846312514583623"]"""
 
-            let! msg = receive
-
-            match msg with
-            | Ok _ -> failwith "It should have detected the event is invalid"
-            | Error error -> ()
-        }
-
+        let! msg = receive
+        match msg with
+        | Ok _ -> failwith "It should have detected the event is invalid"
+        | Error error -> ()
+    }
+     
     [<Fact>]
-    let ``Fails with malformed relay messages (id)`` () =
-        async {
-            let! send, receive = Client.createClient ()
+    let ``xFails with malformed relay messages`` () = async {
+        let! send, receive = Client.createClient ()
+        let message = Relay.Response.RMAck(EventId [||], true, "a message" ) |> Relay.Response.serialize 
+        do! send message
 
-            let message =
-                Relay.Response.RMAck(EventId [||], true, "a message")
-                |> Relay.Response.serialize
-
-            do! send message
-
-            let! msg = receive
-
-            match msg with
-            | Ok _ -> failwith "It should have detected the event is invalid"
-            | Error error -> error |> should haveSubstring "EventId is invalid"
-        }
-
-    interface IClassFixture<EchoServerFixture>
+        let! msg = receive
+        match msg with
+        | Ok _ -> failwith "It should have detected the event is invalid"
+        | Error error -> error |> should haveSubstring "EventId is invalid"
+    }
+    interface IClassFixture<EchoServerFixture> 
