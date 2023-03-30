@@ -64,10 +64,7 @@ module Decode =
 
 module Encode =
     let unixDateTime (date : DateTime) =
-        Encode.uint32 (
-            date - DateTime.UnixEpoch
-            |> fun t -> t.TotalSeconds
-            |> uint32)
+        Encode.uint32 (toUnixTime date)
 
     let eventId (EventId id) =
         Encode.string (toHex id)

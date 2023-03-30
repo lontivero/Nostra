@@ -191,7 +191,7 @@ module Relay =
                             }
                             
                             let added = events.TryAdd ( event.Id, storedEvent ) // TODO what if not?
-                            if added && event.Kind = Kind.Deleted then
+                            if added && event.Kind = Kind.Delete then
                                 storedEvent.RefEvents
                                 |> Seq.map (Utils.fromHex >> EventId)
                                 |> Seq.map (events.TryGetValue)

@@ -18,6 +18,11 @@ module Utils =
             Some (fromHex s)
         | _ -> None
         
+    let toUnixTime date =
+        date - DateTime.UnixEpoch
+        |> fun t -> t.TotalSeconds
+        |> uint32        
+        
 module Monad =
     type Reader<'environment,'a> = Reader of ('environment -> 'a)
 

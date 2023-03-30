@@ -47,7 +47,7 @@ module Event =
         | Recommend = 2
         | Contacts = 3
         | Encrypted = 4
-        | Deleted = 5
+        | Delete = 5
         | Repost = 6
         | Reaction = 7
 
@@ -66,7 +66,7 @@ module Event =
         Tags: Tag list
         Content: string
     }
-    
+       
     module Decode =
         let event : Decoder<Event> =
             Decode.object (fun get -> {
@@ -103,6 +103,11 @@ module Event =
               Encode.list (event.Tags |> List.map Encode.tag)
               Encode.string event.Content
             ])
+    
+    let serialize event =
+        event
+        |> Encode.event
+        |> Encode.toCanonicalForm
         
     let createEvent kind tags content = {
         CreatedAt = DateTime.UtcNow;
@@ -118,7 +123,7 @@ module Event =
         createEvent Kind.Text [replyTag replyTo ""] content
 
     let createDeleteEvent (ids: EventId list) content =
-        createEvent Kind.Deleted (ids |> List.map eventRefTag) content
+        createEvent Kind.Delete (ids |> List.map eventRefTag) content
     
     let sharedKey (XOnlyPubKey he) (mySecret: ECPrivKey) =
         let ecPubKey = ReadOnlySpan (Array.insertAt 0 2uy (he.ToBytes()))
