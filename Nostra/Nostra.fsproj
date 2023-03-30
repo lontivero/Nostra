@@ -1,7 +1,7 @@
 ﻿<Project Sdk="Microsoft.NET.Sdk">
 
     <PropertyGroup>
-        <TargetFramework>net6.0</TargetFramework>
+        <TargetFramework>net7.0</TargetFramework>
         <GenerateDocumentationFile>false</GenerateDocumentationFile>
         <RootNamespace>Nostra.Core</RootNamespace>
     </PropertyGroup>
@@ -20,4 +20,30 @@
       <PackageReference Include="Thoth.Json.Net" Version="10.0.0" />
     </ItemGroup>
 
+    <ItemGroup>
+        <None Include="../LICENSE" Pack="true" PackagePath=""/>
+        <None Include="../README.md" Pack="true" PackagePath=""/>
+    </ItemGroup>
+    
+    <PropertyGroup>
+        <PackageId>Nostra</PackageId>
+        <Version>0.0.1</Version>
+        <projectUrl>https://github.com/lontivero/Nostra</projectUrl>
+        <requireLicenseAcceptance>false</requireLicenseAcceptance>
+        <description>
+            Nostr library for F#
+        </description>
+        <summary>Library to allow interact with the Nostr protocol.</summary>
+        <language>en-US</language>
+        <copyright>Please see LICENSE for more details.</copyright>
+        <tags>NOSTR .NET</tags>
+        <releaseNotes>
+            Very first version 
+        </releaseNotes>
+        <PackageReadmeFile>README.md</PackageReadmeFile>
+        <RepositoryType>git</RepositoryType>
+        <RepositoryUrl>https://github.com/lontivero/nostra</RepositoryUrl>
+        <PackageLicenseFile>LICENSE</PackageLicenseFile>
+    </PropertyGroup>
+    
 </Project>

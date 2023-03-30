@@ -2,7 +2,7 @@
 
     <PropertyGroup>
         <OutputType>Exe</OutputType>
-        <TargetFramework>net6.0</TargetFramework>
+        <TargetFramework>net7.0</TargetFramework>
     </PropertyGroup>
 
     <ItemGroup>
@@ -10,6 +10,8 @@
     </ItemGroup>
 
     <ItemGroup>
+      <PackageReference Include="FsToolkit.ErrorHandling" Version="4.3.0" />
+      <PackageReference Include="Fumble" Version="0.9.0" />
       <PackageReference Include="Suave" Version="2.6.2" />
     </ItemGroup>
 
