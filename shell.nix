@@ -2,7 +2,10 @@
 
 with import <nixos> {};
 let
-  jb = import /home/lontivero/Projects/nixpkgs { config.allowUnfree = true; };
+  ide = import ./ide.nix {};
+  packages = [
+    dotnet-sdk_7
+  ];
   libs = [
     xorg.libX11
     xorg.libX11.dev
@@ -10,14 +13,17 @@ let
     xorg.libSM
     fontconfig.lib
   ];
-  deps = [
-    dotnet-sdk_7
-    jb.jetbrains.rider
-  ];
 in
 mkShell {
-  name = "dotnet-env";
-  buildInputs = libs ++ deps;
+  name = "nostra-dev";
+  packages = packages;
+  buildInputs = libs ++ ide;
+
   DOTNET_ROOT = "${dotnet-sdk_7}";
   LD_LIBRARY_PATH = "${lib.makeLibraryPath libs}";
+  DOTNET_GLOBAL_TOOLS_PATH = "${builtins.getEnv "HOME"}/.dotnet/tools";
+
+  shellHook = ''
+    export PATH="$PATH:$DOTNET_GLOBAL_TOOLS_PATH"
+  '';
 }
