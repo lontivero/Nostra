@@ -12,33 +12,32 @@ open Thoth.Json.Net
 
 module Client =
     open Nostra.Event
-    
+
     module Request =
-        type Filter = {
-            Ids: EventId list
-            Kinds: Kind list 
-            Authors: XOnlyPubKey list 
-            Limit: int option 
-            Since: DateTime option 
-            Until: DateTime option 
-            Events: EventId list 
-            PubKeys: XOnlyPubKey list 
-        }
+        type Filter =
+            { Ids: EventId list
+              Kinds: Kind list
+              Authors: XOnlyPubKey list
+              Limit: int option
+              Since: DateTime option
+              Until: DateTime option
+              Events: EventId list
+              PubKeys: XOnlyPubKey list }
 
         module Filter =
-            
+
             module Encode =
                 let private encodeList field list encoder map : (string * JsonValue) list =
                     match list with
                     | [] -> map
                     | _ -> (field, Encode.list (list |> List.map encoder)) :: map
-                    
+
                 let private encodeOption field opt encoder map : (string * JsonValue) list =
                     match opt with
                     | None -> map
                     | Some v -> (field, encoder v) :: map
-                    
-                let filter (filter : Filter) =
+
+                let filter (filter: Filter) =
                     []
                     |> encodeList "ids" filter.Ids Encode.eventId
                     |> encodeList "kinds" filter.Kinds Encode.Enum.int
@@ -52,58 +51,58 @@ module Client =
 
             module FilterUtils =
                 type ClientFilter =
-                     | MetadataFilter of XOnlyPubKey list * DateTime
-                     | ContactsFilter of XOnlyPubKey list * DateTime
-                     | TextNoteFilter of XOnlyPubKey list * DateTime
-                     | LinkedEvents of EventId list * DateTime
-                     | AllNotes of DateTime
-                     | AllMetadata of DateTime
-                     | DirectMessageFilter of XOnlyPubKey
+                    | MetadataFilter of XOnlyPubKey list * DateTime
+                    | ContactsFilter of XOnlyPubKey list * DateTime
+                    | TextNoteFilter of XOnlyPubKey list * DateTime
+                    | LinkedEvents of EventId list * DateTime
+                    | AllNotes of DateTime
+                    | AllMetadata of DateTime
+                    | DirectMessageFilter of XOnlyPubKey
 
-                let singleton : Filter = {
-                     Ids = []
-                     Kinds = []
-                     Authors = []
-                     Limit = None
-                     Since = None
-                     Until = None
-                     Events = []
-                     PubKeys = [] 
-                     }
+                let singleton: Filter =
+                    { Ids = []
+                      Kinds = []
+                      Authors = []
+                      Limit = None
+                      Since = None
+                      Until = None
+                      Events = []
+                      PubKeys = [] }
 
-                let toFilter = function
-                    | MetadataFilter (authors, until) ->
+                let toFilter =
+                    function
+                    | MetadataFilter(authors, until) ->
                         { singleton with
-                           Kinds = [Kind.Metadata]
-                           Authors = authors
-                           Until = Some until }
-                    | ContactsFilter (authors, until) ->
-                        { singleton with
-                            Kinds = [Kind.Contacts]
+                            Kinds = [ Kind.Metadata ]
                             Authors = authors
                             Until = Some until }
-                    | TextNoteFilter (authors, until) ->
+                    | ContactsFilter(authors, until) ->
                         { singleton with
-                            Kinds = [Kind.Text]
+                            Kinds = [ Kind.Contacts ]
                             Authors = authors
                             Until = Some until }
-                    | LinkedEvents (eventIds, until) -> 
+                    | TextNoteFilter(authors, until) ->
                         { singleton with
-                            Kinds = [Kind.Text]
+                            Kinds = [ Kind.Text ]
+                            Authors = authors
+                            Until = Some until }
+                    | LinkedEvents(eventIds, until) ->
+                        { singleton with
+                            Kinds = [ Kind.Text ]
                             Events = eventIds
                             Until = Some until }
                     | AllNotes since ->
                         { singleton with
-                            Kinds = [Kind.Text]
+                            Kinds = [ Kind.Text ]
                             Since = Some since }
                     | AllMetadata until ->
                         { singleton with
-                            Kinds = [Kind.Metadata]
+                            Kinds = [ Kind.Metadata ]
                             Until = Some until }
                     | DirectMessageFilter from ->
                         { singleton with
-                            Kinds = [Kind.Encrypted]
-                            Authors = [from] }
+                            Kinds = [ Kind.Encrypted ]
+                            Authors = [ from ] }
 
         type ClientMessage =
             | CMEvent of Event
@@ -112,15 +111,16 @@ module Client =
 
         module Encode =
             open Filter
-            
-            let clientMessage = function
+
+            let clientMessage =
+                function
                 | CMEvent event -> Encode.tuple2 Encode.string Encode.event ("EVENT", event)
                 | CMUnsubscribe subscriptionId -> Encode.tuple2 Encode.string Encode.string ("CLOSE", subscriptionId)
-                | CMSubscribe (subscriptionId, filter) ->
-                    Encode.list ([
-                        Encode.string "REQ"
-                        Encode.string subscriptionId
-                        ] @ (filter |> List.map Encode.filter))
+                | CMSubscribe(subscriptionId, filter) ->
+                    Encode.list (
+                        [ Encode.string "REQ"; Encode.string subscriptionId ]
+                        @ (filter |> List.map Encode.filter)
+                    )
 
         let serialize (msg: ClientMessage) =
             msg |> Encode.clientMessage |> Encode.toCanonicalForm
@@ -133,9 +133,9 @@ module Client =
             | RMEOSE of string
 
         module Decode =
-            let relayMessage : Decoder<RelayMessage> =
+            let relayMessage: Decoder<RelayMessage> =
                 Decode.index 0 Decode.string
-                |> Decode.andThen ( function
+                |> Decode.andThen (function
                     | "EVENT" ->
                         Decode.map2
                             (fun subscriptionId event -> RMEvent(subscriptionId, event))
@@ -157,11 +157,11 @@ module Client =
                             (Decode.index 3 Decode.string)
                     | _ -> Decode.fail "Unknown message from the relay")
 
-        let deserialize (str: string)  =
+        let deserialize (str: string) =
             Decode.fromString Decode.relayMessage str
 
     open Response
-    
+
     module Communication =
         let readWebSocketMessage (ctx: Context) =
             let rec readMessage (mem:MemoryStream) = async {
@@ -241,12 +241,14 @@ module Client =
         let ws = new ClientWebSocket()
         let ctx = Communication.buildContext ws Console.Out
         let pushToRelay = Monad.injectedWith ctx (Communication.sender ())
-        let receiveFromRelay incomingMessageProcessor = Monad.injectedWith ctx (Communication.startReceiving incomingMessageProcessor)
+
+        let receiveFromRelay incomingMessageProcessor =
+            Monad.injectedWith ctx (Communication.startReceiving incomingMessageProcessor)
 
         async {
             let! ct = Async.CancellationToken
 
-            do! ws.ConnectAsync (uri, ct) |> Async.AwaitTask
+            do! ws.ConnectAsync(uri, ct) |> Async.AwaitTask
 
             return (pushToRelay, receiveFromRelay, ws)
         }

@@ -19,23 +19,25 @@ open Nostra.Client.Response
 
 module CommandLine =
     open System.Text.RegularExpressions
-    
-    let (|Command|_|) (s:string) =
-        let r = new Regex(@"^(?:-{1,2}|\/)(?<command>\w+)[=:]*(?<value>.*)$",RegexOptions.IgnoreCase)
-        let m = r.Match(s)
-        if m.Success then
-           Some(m.Groups.["command"].Value.ToLower(), m.Groups.["value"].Value)
-        else
-           None
 
-    let parseArgs (args:string seq) =
-       args 
-       |> Seq.map (
-             function 
-             | Command (switch, value) -> (switch, value)
-             | flag -> (flag, ""))
-       |> Seq.skip 1
-       |> List.ofSeq
+    let (|Command|_|) (s: string) =
+        let r =
+            new Regex(@"^(?:-{1,2}|\/)(?<command>\w+)[=:]*(?<value>.*)$", RegexOptions.IgnoreCase)
+
+        let m = r.Match(s)
+
+        if m.Success then
+            Some(m.Groups.["command"].Value.ToLower(), m.Groups.["value"].Value)
+        else
+            None
+
+    let parseArgs (args: string seq) =
+        args
+        |> Seq.map (function
+            | Command(switch, value) -> (switch, value)
+            | flag -> (flag, ""))
+        |> Seq.skip 1
+        |> List.ofSeq
 
 open System.Threading.Tasks
 open Nostra.Monad
@@ -46,75 +48,73 @@ let args = fsi.CommandLineArgs
 let switchs = CommandLine.parseArgs args
 
 match switchs with
-| ("genkey", _)::rest ->
+| ("genkey", _) :: rest ->
     let secret = Key.createNewRandom ()
     let secretBytes = Array.zeroCreate 32
     let pubKeyBytes = secret |> Key.getPubKey |> (fun x -> x.ToBytes())
-    secret.WriteToSpan (Span secretBytes)
-    
+    secret.WriteToSpan(Span secretBytes)
+
     let nsec = "nsec"
     let npub = "npub"
-    Console.WriteLine ($"secret: hex    {Utils.toHex secretBytes}")
-    Console.WriteLine ($"        bech32 {Bech32.encode nsec (secretBytes |> Array.toList)}")
-    Console.WriteLine ($"pubkey: hex    {Utils.toHex pubKeyBytes}")
-    Console.WriteLine ($"        bech32 {Bech32.encode npub (pubKeyBytes |> Array.toList)}")
+    Console.WriteLine($"secret: hex    {Utils.toHex secretBytes}")
+    Console.WriteLine($"        bech32 {Bech32.encode nsec (secretBytes |> Array.toList)}")
+    Console.WriteLine($"pubkey: hex    {Utils.toHex pubKeyBytes}")
+    Console.WriteLine($"        bech32 {Bech32.encode npub (pubKeyBytes |> Array.toList)}")
     0
-| ("listen", _)::rest ->
+| ("listen", _) :: rest ->
     let args = Map.ofList rest
-    
+
     let printEvent (eventResult) =
         match eventResult with
         | Ok relayMessage ->
             match relayMessage with
-            | RMEvent (id, event) ->
+            | RMEvent(id, event) ->
                 let (XOnlyPubKey pubKey) = event.PubKey
                 Console.WriteLine "---------------------------------------------------------------"
                 Console.WriteLine $"Kind: {event.Kind}  - Author: {pubKey.ToBytes() |> Utils.toHex}"
-                Console.WriteLine (event.Content)
-            | _ ->
-                Console.WriteLine "- other -"
-        | Error e -> Console.WriteLine (e.ToString())
+                Console.WriteLine(event.Content)
+            | _ -> Console.WriteLine "- other -"
+        | Error e -> Console.WriteLine(e.ToString())
 
     async {
         let ws = new ClientWebSocket()
 
         // "wss://nostr-pub.wellorder.net"
-        do! ws.ConnectAsync (Uri (args["relay"]), CancellationToken.None) |> Async.AwaitTask
+        do! ws.ConnectAsync(Uri(args["relay"]), CancellationToken.None) |> Async.AwaitTask
         let ctx = Client.Communication.buildContext ws Console.Out
         let pushToRelay = injectedWith ctx (Client.Communication.sender ())
-        let filter = toFilter (AllNotes (DateTime.UtcNow.AddDays(-1)))
-        
-        Client.Request.CMSubscribe ("all", [filter])
-        |> pushToRelay
+        let filter = toFilter (AllNotes(DateTime.UtcNow.AddDays(-1)))
+
+        Client.Request.CMSubscribe("all", [ filter ]) |> pushToRelay
 
         let receiveLoop = injectedWith ctx (Client.Communication.startReceiving printEvent)
-        do! receiveLoop 
-        
-    } |> Async.RunSynchronously
+        do! receiveLoop
+
+    }
+    |> Async.RunSynchronously
+
     0
-| ("sendmsg", _)::rest ->
+| ("sendmsg", _) :: rest ->
     let args = Map.ofList rest
-    let secret = args["secret"] |> Utils.fromHex |> ECPrivKey.Create 
-    let recipient = args["to"] |> Utils.fromHex |> ECXOnlyPubKey.Create |> XOnlyPubKey 
+    let secret = args["secret"] |> Utils.fromHex |> ECPrivKey.Create
+    let recipient = args["to"] |> Utils.fromHex |> ECXOnlyPubKey.Create |> XOnlyPubKey
     let msg = args["msg"]
     let dm = createEncryptedDirectMessage recipient secret msg
-    let signedDm = sign secret dm 
+    let signedDm = sign secret dm
 
     let ws = new ClientWebSocket()
-    
-    ws.ConnectAsync (Uri (args["relay"]), CancellationToken.None)
+
+    ws.ConnectAsync(Uri(args["relay"]), CancellationToken.None)
     |> Async.AwaitTask
     |> Async.RunSynchronously
-   
+
     let (EventId id) = signedDm.Id
     let ctx = Client.Communication.buildContext ws Console.Out
-    let pushToRelay = injectedWith ctx (Client.Communication.sender ()) 
+    let pushToRelay = injectedWith ctx (Client.Communication.sender ())
     pushToRelay (Client.Request.CMEvent signedDm)
-    
-    Console.WriteLine (id |> Utils.toHex)
-    Task.Delay(1000) 
-    |> Async.AwaitTask
-    |> Async.RunSynchronously
+
+    Console.WriteLine(id |> Utils.toHex)
+    Task.Delay(1000) |> Async.AwaitTask |> Async.RunSynchronously
     0
 | _ ->
     """
@@ -131,6 +131,7 @@ match switchs with
             --relay                     relay to be used
     """
     |> Console.WriteLine
+
     0
 
 //Library.fsx genkey

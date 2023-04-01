@@ -8,28 +8,26 @@ open Thoth.Json.Net
 
 module Relay =
     open Nostra.Event
-    
-    type StoredEvent = {
-        Id: string
-        Event: Event
-        PubKey: string
-        Serialized: SerializedEvent
-        Seen: DateTime
-        RefEvents: string list
-        RefPubKeys: string list
-    }
-    
+
+    type StoredEvent =
+        { Id: string
+          Event: Event
+          PubKey: string
+          Serialized: SerializedEvent
+          Seen: DateTime
+          RefEvents: string list
+          RefPubKeys: string list }
+
     module Request =
-        type Filter = {
-            Ids: string list
-            Kinds: Kind list 
-            Authors: string list 
-            Limit: int option 
-            Since: DateTime option 
-            Until: DateTime option 
-            Events: string list 
-            PubKeys: string list 
-        }
+        type Filter =
+            { Ids: string list
+              Kinds: Kind list
+              Authors: string list
+              Limit: int option
+              Since: DateTime option
+              Until: DateTime option
+              Events: string list
+              PubKeys: string list }
 
         module Filter =
             module Decode =
@@ -77,10 +75,11 @@ module Relay =
             | CMUnsubscribe of SubscriptionId
 
         module Decode =
-            let listOfFilters : Decoder<Filter list> =
+            let listOfFilters: Decoder<Filter list> =
                 fun path token ->
                     let items = Decode.Helpers.asArray token
                     let len = items.Length
+
                     if len >= 3 then
                         (Ok [], items |> Array.mapi (fun i x -> i, x) |> Array.skip 2 )
                         ||> Array.fold (fun acc values ->
@@ -89,11 +88,11 @@ module Relay =
                             | Ok acc ->
                                 match Decode.index (fst values) Filter.Decode.filter path token with
                                 | Error er -> Error er
-                                | Ok value -> Ok (value::acc))
+                                | Ok value -> Ok(value :: acc))
                     else
-                        Error ("", BadType("", token))
-                        
-            let clientMessage : Decoder<ClientMessage> =
+                        Error("", BadType("", token))
+
+            let clientMessage: Decoder<ClientMessage> =
                 Decode.index 0 Decode.string
                 |> Decode.andThen ( function
                     | "EVENT" ->
@@ -111,7 +110,7 @@ module Relay =
                             listOfFilters
                     | _ -> Decode.fail "Client request type is unknown")
 
-        let deserialize str  =
+        let deserialize str =
             Decode.fromString Decode.clientMessage str
 
     module Response =
@@ -120,7 +119,7 @@ module Relay =
             | RMNotice of string
             | RMAck of EventId * bool * string
             | RMEOSE of string
-            
+
         module Encode =
             let relayMessage = function
                 | RMEvent (subscriptionId, event) ->
@@ -151,17 +150,14 @@ module Relay =
             msg |> Encode.relayMessage |> Encode.toCanonicalForm
 
         let toPayload (msg: RelayMessage) =
-            msg
-            |> serialize
-            |> Encoding.UTF8.GetBytes
-            |> ArraySegment
+            msg |> serialize |> Encoding.UTF8.GetBytes |> ArraySegment
 
     module Communication =
         type EventProcessorCommand =
             | StoreEvent of Event
             | GetEvents of Request.Filter list * AsyncReplyChannel<Event list>
 
-        type EventStore () =
+        type EventStore() =
             let afterEventStoredEvent = Event<StoredEvent>()
             let events = Dictionary<EventId, StoredEvent>()
 

@@ -35,17 +35,19 @@ module Client =
     open System.Text
     open Nostra.Client
     open Nostra.Monad
-    
+
     let createClient () =
         let ws = new ClientWebSocket()
         let ctx = Communication.buildContext ws Console.Out
+
         let send (msg: string) =
             let payload = msg |> Encoding.UTF8.GetBytes
             ctx.WebSocket.write payload
+
         let receive = Communication.receiveMessage |> injectedWith ctx
+
         async {
             let! ct = Async.CancellationToken
-            do! ws.ConnectAsync (Uri "ws://127.0.0.1:8080/", ct) |> Async.AwaitTask
+            do! ws.ConnectAsync(Uri "ws://127.0.0.1:8080/", ct) |> Async.AwaitTask
             return send, receive
         }
-    
