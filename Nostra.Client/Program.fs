@@ -40,29 +40,17 @@ let Main =
     let uri = Uri("wss://nostr-pub.wellorder.net")
     //let uri = Uri("ws://127.0.0.1:8080/")
 
-    let ws = new ClientWebSocket()
-    let ctx = Communication.buildContext ws Console.Out
-    let pushToRelay = Monad.injectedWith ctx (Communication.sender ())
-    let receiveLoop = Monad.injectedWith ctx (Communication.startReceiving displayResponse)
-    let filter = FilterUtils.toFilter (FilterUtils.ClientFilter.AllNotes (DateTime.UtcNow.AddDays(-1)))
-
     let workflow = async {
-        do! ws.ConnectAsync (uri, CancellationToken.None) |> Async.AwaitTask
+        let! pushToRelay, receiverFromRelay, _ = connectToRelay uri
+        let receiveLoop = receiverFromRelay displayResponse
+        let filter = FilterUtils.toFilter (FilterUtils.ClientFilter.AllNotes (DateTime.UtcNow.AddDays(-1)))
+
         Request.CMSubscribe ("all", [filter])
         |> pushToRelay
 
-        let note =
-            createNoteEvent "Hello world!"
-            |> sign secret
-            
-        Request.CMEvent note
-        |> pushToRelay
-
-        let delete =
-            createDeleteEvent [note.Id] "Because I can" 
-            |> sign secret
-
-        Request.CMEvent delete
+        createNoteEvent "Hello world!"
+        |> sign secret        
+        |> Request.CMEvent
         |> pushToRelay
 
         do! receiveLoop

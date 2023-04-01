@@ -184,7 +184,7 @@ module Client =
                 |> deserialize
                 |> Result.bind (fun relayMsg ->
                    match relayMsg with
-                   | RMEvent (_, event) ->
+                   | RMEvent (subscriptionId, event) ->
                         if (verify event) then
                             Ok relayMsg
                         else
@@ -236,3 +236,17 @@ module Client =
                     logError = log.WriteLine
                 }
             }
+
+    let connectToRelay uri =
+        let ws = new ClientWebSocket()
+        let ctx = Communication.buildContext ws Console.Out
+        let pushToRelay = Monad.injectedWith ctx (Communication.sender ())
+        let receiveFromRelay incomingMessageProcessor = Monad.injectedWith ctx (Communication.startReceiving incomingMessageProcessor)
+
+        async {
+            let! ct = Async.CancellationToken
+
+            do! ws.ConnectAsync (uri, ct) |> Async.AwaitTask
+
+            return (pushToRelay, receiveFromRelay, ws)
+        }
