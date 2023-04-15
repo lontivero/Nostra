@@ -2,6 +2,7 @@
 
 open System
 open System.Collections.Generic
+open System.Net
 open System.Threading
 open Microsoft.FSharp.Control
 open FsToolkit.ErrorHandling
@@ -18,44 +19,56 @@ open Relay.Response
 open EventStore
 open YoLo
 
-let webSocketHandler (eventStore:EventStore) (webSocket : WebSocket) (context: HttpContext) =
+type EventEvaluator = StoredEvent -> unit
+
+module ClientRegistry =
+    type ClientRegistry = {
+        subscribe : IPEndPoint -> EventEvaluator -> unit
+        unsubscribe : IPEndPoint -> unit
+        notifyEvent : StoredEvent -> unit        
+    }
+    
+    type ClientRegistryAction =
+        | Subscribe of EndPoint * EventEvaluator
+        | Unsubscribe of EndPoint
+        | NotifyEvent of StoredEvent
+        
+    let createClientRegistry () =
+        let evaluators = Dictionary<EndPoint, EventEvaluator>()
+
+        let notifyToAll event =
+            evaluators
+            |> Seq.map (fun kv -> kv.Value)
+            |> Seq.iter (fun evaluator -> evaluator event)
+            
+        let worker =
+            MailboxProcessor<ClientRegistryAction>.Start(fun inbox ->
+                let rec loop () = async { 
+                    let! msg = inbox.Receive()
+                    match msg with
+                    | Subscribe (endpoint, evaluator) -> evaluators.Add(endpoint, evaluator) 
+                    | Unsubscribe endpoint -> evaluators.Remove(endpoint) |> ignore
+                    | NotifyEvent storedEvent -> notifyToAll storedEvent
+                    return! loop ()
+                }
+                loop () )
+            
+        {
+            subscribe = fun endpoint evaluator -> worker.Post (Subscribe (endpoint, evaluator))
+            unsubscribe = fun endpoint -> worker.Post (Unsubscribe endpoint)
+            notifyEvent = fun storedEvent -> worker.Post (NotifyEvent storedEvent)
+        }
+        
+let webSocketHandler (eventStore : EventStore) (clientRegistry : ClientRegistry.ClientRegistry) (webSocket : WebSocket) (context: HttpContext) =
 
     let subscriptions = Dictionary<SubscriptionId, Filter list>()
 
-    let processRequest requestText = asyncResult {
-        let! request =
-            deserialize requestText
-            |> Result.mapError (fun e -> Exception e)
-
-        match request with
-        | CMEvent event ->
-            if verify event then
-                eventStore.storeEvent event
-                return! Ok [ RMAck (event.Id, true, "added") ]
-            else
-                return! Ok [ RMAck (event.Id, false, "invalid: the signature is incorrect") ]
-                
-        | CMSubscribe(subscriptionId, filters) ->
-            subscriptions.Add( subscriptionId, filters )
-            let! matchingEvents = eventStore.getEvents filters
-            let eventsFromDb =
-                matchingEvents
-                |> List.map (fun e -> RMEvent(subscriptionId, e))
-                |> List.rev
-            let messages = (RMEOSE subscriptionId) :: eventsFromDb
-            return! Ok messages
-            
-        | CMUnsubscribe subscriptionId ->
-            subscriptions.Remove subscriptionId |> ignore
-            return! Ok []
-        }
-    
     let send = 
         let worker =
             MailboxProcessor<RelayMessage * bool>.Start(fun inbox ->
                 let rec loop () = async { 
                     let! (msg, fin) = inbox.Receive()
-                    webSocket.send Text (toPayload msg) fin |> Async.Ignore |> Async.Start
+                    let! result = webSocket.send Text (toPayload msg) true
                     return! loop ()
                 }
                 loop () )
@@ -64,40 +77,79 @@ let webSocketHandler (eventStore:EventStore) (webSocket : WebSocket) (context: H
     let sendFinal msg = send (msg, true)
     let sendAndContinue msg = send (msg, false)
     
-    let onEvents =
-        eventStore.afterEventStored.Subscribe(fun event ->
+    let notifyEvent : EventEvaluator =
+        fun event ->
             subscriptions
             |> Seq.map (fun (KeyValue(s,fs)) -> s, Filter.eventMatchesAnyFilter fs event)
             |> Seq.tryFind(fun (_, m) -> m = true)
             |> Option.iter (fun (subscriptionId, _) ->
-                sendFinal (RMEvent (subscriptionId, event.Serialized))))
+                sendFinal (RMEvent (subscriptionId, event.Serialized)))
+    
+    let processRequest requestText = asyncResult {
+        let! request =
+            deserialize requestText
+            |> Result.mapError (fun e -> Exception e)
 
+        match request with
+        | CMEvent event ->
+            if verify event then
+                let serializedEvent = requestText[(requestText.IndexOf "{")..(requestText.LastIndexOf "}")]
+                let! storedEvent = storeEvent eventStore.saveEvent eventStore.deleteEvents event serializedEvent
+                clientRegistry.notifyEvent storedEvent
+                return! Ok [ RMAck (event.Id, true, "added") ]
+            else
+                return! Ok [ RMAck (event.Id, false, "invalid: the signature is incorrect") ]
+                
+        | CMSubscribe(subscriptionId, filters) ->
+            subscriptions.Add( subscriptionId, filters )
+            let! matchingEvents = filterEvents eventStore.fetchEvents filters
+            let relayMessages =
+                matchingEvents
+                |> List.map (fun event ->RMEvent(subscriptionId, event))
+
+            return (RMEOSE subscriptionId) :: relayMessages  
+            
+        | CMUnsubscribe subscriptionId ->
+            subscriptions.Remove subscriptionId |> ignore
+            return! Ok []
+        }
+
+    let clientEndPoint =
+        let ip = context.clientIp true []
+        let port = context.clientPort true []
+        IPEndPoint(ip , int port)
+        
     let rec loop () = socket {
         let! msg = webSocket.read()
         match msg with
         | Text, data, true ->
             let requestText = UTF8.toString data
-            let r = asyncResult {
+            asyncResult {
                 let! relayMessages = processRequest requestText
                 match relayMessages with
                 | [ ] -> return ()
                 | (final::messages) ->
                     messages
                     |> List.rev
-                    |> List.iter sendAndContinue
-                    sendFinal final
+                    |> List.iter sendAndContinue 
+                    sendFinal final 
                     return ()
             }
-            r |> Async.RunSynchronously |> ignore
+            |> Async.RunSynchronously
+            |> function
+                | Ok () -> ()
+                | Error e -> sendFinal (RMNotice "Invalid message received")  
+
             return! loop()
         | Close, _, _ ->
-            onEvents.Dispose()
+            clientRegistry.unsubscribe clientEndPoint
             let emptyResponse = [||] |> ByteSegment
             do! webSocket.send Close emptyResponse true
         | _ ->
             return! loop()
     }
     
+    clientRegistry.subscribe clientEndPoint notifyEvent   
     loop ()
     
 open Suave.Operators
@@ -117,23 +169,26 @@ let app : WebPart =
     let dbconnection = Database.connection "Data Source=mydb.db"
 
     Database.createTables dbconnection
-    let saveEvent = Database.saveEvent dbconnection
-    let deleteEvents = Database.deleteEvents dbconnection
-    let fetchEvents = Database.fetchEvents dbconnection
     
-    let eventStore = EventStore(saveEvent, deleteEvents, fetchEvents)
-    let ws = webSocketHandler eventStore
+    let eventStore = {
+        saveEvent = Database.saveEvent dbconnection
+        deleteEvents = Database.deleteEvents dbconnection
+        fetchEvents = Database.fetchEvents dbconnection
+    }
+    let clientRegistry = ClientRegistry.createClientRegistry ()
+    
+    let ws = webSocketHandler eventStore clientRegistry
 
-    let handle fCont (ctx : HttpContext) =
+    let handleRequest continuation (ctx : HttpContext) =
         let acceptHeader = ctx.request.header("Accept")
         let upgradeHeader = ctx.request.header("Upgrade")
         match acceptHeader, upgradeHeader with
         | Choice1Of2 "application/nostr+json", _ -> relayInformationDocument ctx
-        | _, Choice1Of2 "websocket" -> handShake fCont ctx
+        | _, Choice1Of2 "websocket" -> handShake continuation ctx
         | _ -> OK "Use a Nostr client" ctx 
             
     choose [
-        path "/" >=> handle ws
+        path "/" >=> handleRequest ws
         POST >=> path "/api/req" >=> 
             fun ctx ->
                 let filterResult =
@@ -143,11 +198,12 @@ let app : WebPart =
                 match filterResult with
                 | Ok filter ->
                     asyncResult {
-                        let! events = eventStore.getEvents [filter]
-                        return events
-                        |> List.map Encode.string
-                        |> Encode.list
-                        |> Encode.toCanonicalForm
+                        let! events = filterEvents (eventStore.fetchEvents) [filter]
+                        return! events
+                                |> List.map Encode.string
+                                |> Encode.list
+                                |> Encode.toCanonicalForm
+                                |> Ok                                
                     }
                     |> Async.RunSynchronously
                     |> function

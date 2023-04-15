@@ -1,9 +1,7 @@
 namespace Nostra
 
 open System
-open System.Collections.Generic
 open System.Text
-open Nostra.Client
 open Thoth.Json.Net
 
 module Relay =
@@ -122,33 +120,33 @@ module Relay =
             | RMEOSE of string
             
         module Encode =
+            let quote (x: string) = "\"" + x + "\""
+            let serialize xs =
+                "[" + (String.concat "," xs) + "]"
+                
             let relayMessage = function
                 | RMEvent (subscriptionId, serializedEvent) ->
-                    Encode.tuple3
-                        Encode.string
-                        Encode.string
-                        Encode.string
-                        ("EVENT", subscriptionId, serializedEvent)
+                    serialize (seq {
+                        yield quote "EVENT"
+                        yield quote subscriptionId
+                        yield serializedEvent } )   
                 | RMNotice message ->
-                    Encode.tuple2
-                        Encode.string
-                        Encode.string
-                        ("NOTICE", message)
-                | RMAck (eventId, success, message) ->
-                    Encode.tuple4
-                        Encode.string
-                        Encode.eventId
-                        Encode.bool
-                        Encode.string
-                        ("OK", eventId, success, message)
+                    serialize (seq {
+                        yield quote "NOTICE"
+                        yield quote message})
+                | RMAck (EventId eventId, success, message) ->
+                    serialize (seq {
+                        yield quote "OK"
+                        yield quote (eventId |> Utils.toHex)   
+                        yield (if success then "true" else "false")
+                        yield quote message })
                 | RMEOSE subscriptionId ->
-                    Encode.tuple2
-                        Encode.string
-                        Encode.string
-                        ("EOSE", subscriptionId)
+                    serialize (seq {
+                        yield quote "EOSE"
+                        yield quote subscriptionId})
 
         let serialize (msg: RelayMessage) =
-            msg |> Encode.relayMessage |> Encode.toCanonicalForm
+            msg |> Encode.relayMessage
 
         let toPayload (msg: RelayMessage) =
             msg

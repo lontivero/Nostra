@@ -1,49 +1,45 @@
 module EventStore
 
 open System
+open FsToolkit.ErrorHandling
 open Nostra
 open Nostra.Event
 open Nostra.Relay
-type EventProcessorCommand =
-    | StoreEvent of Event
-    | GetEvents of Request.Filter list * AsyncReplyChannel<Async<Result<SerializedEvent list, exn>>>
 
-type EventSaver = Event -> Result<StoredEvent, exn>
-type EventsDeleter = XOnlyPubKey -> String list -> Result<int list, exn>
+type EventSaver = Event -> SerializedEvent -> Async<Result<StoredEvent, exn>>
+type EventsDeleter = XOnlyPubKey -> String list -> Async<Result<int list, exn>>
 type EventsFetcher = Request.Filter -> Async<Result<SerializedEvent list, exn>>
 
-type EventStore (saveEvent: EventSaver, deleteEvents: EventsDeleter, fetchEvents: EventsFetcher)  =
-    let afterEventStoredEvent = Event<StoredEvent>()
+type EventStore = {
+    saveEvent : EventSaver
+    deleteEvents : EventsDeleter
+    fetchEvents : EventsFetcher
+}
+
+let filterEvents (fetchEvents : EventsFetcher) filters = asyncResult {
+    let! matchingEventsResult =
+        filters
+        |> List.map fetchEvents
+        |> List.sequenceAsyncA
+        
+    let matchingEvents = 
+        matchingEventsResult
+        |> List.sequenceResultM
+        |> Result.bind (fun eventsList ->
+            eventsList
+            |> List.concat
+            |> Ok)
+        
+    return! matchingEvents
+    }
     
-    let worker =
-        MailboxProcessor<EventProcessorCommand>.Start (fun inbox ->
-            let rec loop () = async { 
-                let! msg = inbox.Receive()
-                match msg with
-                | StoreEvent event ->
-                    saveEvent event
-                    |> Result.bind (
-                        fun storedEvent ->
-                            match event.Kind with
-                            | Kind.Delete ->
-                                storedEvent.RefEvents
-                                |> deleteEvents event.PubKey
-                                |> Result.map (fun _ -> storedEvent)
-                            | _ -> Ok storedEvent)
-                    |> function
-                    | Ok storedEvent -> afterEventStoredEvent.Trigger storedEvent
-                    | Error e ->  ignore e // TODO log the error
- 
-                | GetEvents (filters, reply) ->
-                    filters
-                    |> Seq.map fetchEvents
-                    |> Seq.toList
-                    |> Seq.iter reply.Reply
-                return! loop() }
-            loop () )
-    member this.storeEvent event = worker.Post (StoreEvent event)
-    member this.getEvents filters = worker.PostAndReply (fun replyChannel -> GetEvents (filters, replyChannel)) 
-    [<CLIEvent>]
-    member this.afterEventStored = afterEventStoredEvent.Publish
-
-
+let storeEvent (saveEvent : EventSaver) (deleteEvents : EventsDeleter) event serializedEvent=
+    saveEvent event serializedEvent
+    |> AsyncResult.bind(
+        fun storedEvent ->
+            match event.Kind with
+            | Kind.Delete ->
+                storedEvent.RefEvents
+                |> deleteEvents event.PubKey
+                |> AsyncResult.map (fun _ -> storedEvent)
+            | _ -> AsyncResult.ok storedEvent)

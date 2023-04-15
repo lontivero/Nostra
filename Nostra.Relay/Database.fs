@@ -1,6 +1,7 @@
 module Database
 
 open System
+open FsToolkit.ErrorHandling
 open Fumble
 open Microsoft.Data.Sqlite
 open Nostra
@@ -39,7 +40,7 @@ let createTables connection =
         | Ok rows -> printfn "Created tables"
         | Error exn -> failwith exn.Message)
 
-let saveEvent connection (event: Event.Event) =
+let saveEvent connection (event: Event.Event) (serializedEvent: SerializedEvent) =
     let (EventId eventId) = event.Id 
     let (XOnlyPubKey xOnlyPubkey) = event.PubKey
     let pubkey = xOnlyPubkey.ToBytes()
@@ -49,7 +50,7 @@ let saveEvent connection (event: Event.Event) =
         |> List.collect (fun (k, vs) -> vs |> List.map (fun v -> k, v))
         
     connection
-    |> Sqlite.executeTransaction [
+    |> Sqlite.executeTransactionAsync [
         "INSERT INTO Events(eventId, pubkey, content, kind, createdAt, rawEvent, deleted)
             VALUES (@eventId, @pubkey, @content, @kind, @createdAt, @rawEvent, @deleted)",
         [ [ "@eventId", Sqlite.bytes eventId
@@ -57,7 +58,7 @@ let saveEvent connection (event: Event.Event) =
             "@content", Sqlite.string event.Content
             "@kind", Sqlite.int (int event.Kind)
             "@createdAt", Sqlite.dateTime event.CreatedAt
-            "@rawEvent", Sqlite.string ""
+            "@rawEvent", Sqlite.string serializedEvent
             "@deleted", Sqlite.bool false ] ]
         
         if tags.Length > 0 then
@@ -69,11 +70,11 @@ let saveEvent connection (event: Event.Event) =
                 "@value", Sqlite.string value]
         )
     ]
-    |> Result.map (fun _ -> {
+    |> AsyncResult.map (fun _ -> {
         Event = event
         Id = Utils.toHex eventId
         PubKey = Utils.toHex pubkey
-        Serialized = "rawEvent"
+        Serialized = serializedEvent
         Seen = DateTime.UtcNow
         RefEvents =
             tags
@@ -88,7 +89,7 @@ let saveEvent connection (event: Event.Event) =
 let deleteEvents connection (XOnlyPubKey author) eventIds =
     let eventIdsParameters = String.Join(",", eventIds |> List.mapi (fun i _ -> $"@eventId{i}"))
     connection
-    |> Sqlite.executeTransaction [
+    |> Sqlite.executeTransactionAsync [
         $"UPDATE Events SET deleted = TRUE WHERE kind != 5 AND pubkey = @author AND eventId IN ({eventIdsParameters})",
         [[ "@author", Sqlite.bytes (author.ToBytes()) ]
          @
