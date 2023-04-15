@@ -10,7 +10,8 @@
 
     <ItemGroup>
         <Compile Include="EchoServer.fs" />
-        <Compile Include="Tests.fs" />
+        <Compile Include="RelayTests.fs" />
+        <Compile Include="ClientTests.fs" />
     </ItemGroup>
 
     <ItemGroup>
@@ -29,6 +30,7 @@
     </ItemGroup>
 
     <ItemGroup>
+      <ProjectReference Include="..\Nostra.Relay\Nostra.Relay.fsproj" />
       <ProjectReference Include="..\Nostra\Nostra.fsproj" />
     </ItemGroup>
 
