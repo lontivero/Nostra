@@ -8,6 +8,8 @@
     <ItemGroup>
         <Compile Include="Database.fs" />
         <Compile Include="EventStore.fs" />
+        <Compile Include="ClientRegistry.fs" />
+        <Compile Include="MessageProcessing.fs" />
         <Compile Include="Program.fs" />
     </ItemGroup>
 

@@ -45,6 +45,8 @@ module Event =
         | Delete = 5
         | Repost = 6
         | Reaction = 7
+        | EphemeralStart = 2_000
+        | EphemeralEnd = 3_000
 
     type Event =
         { Id: EventId
@@ -159,3 +161,6 @@ module Event =
 
         let computedId = event |> toUnsignedEvent |> getEventId event.PubKey
         computedId = id && pubkey.SigVerifyBIP340(signature, id)
+
+    let isEphemeral (event: Event) =
+        event.Kind >= Kind.EphemeralStart && event.Kind < Kind.EphemeralEnd

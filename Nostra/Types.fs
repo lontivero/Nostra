@@ -17,7 +17,6 @@ type SchnorrSignature = SchnorrSignature of SecpSchnorrSignature
 type Tag = string * (string list)
 type SerializedEvent = string
 
-
 module Decode =
     let expect expectedValue : Decoder<string> =
         Decode.string
