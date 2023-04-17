@@ -40,7 +40,8 @@ let createTables connection =
         | Ok rows -> printfn "Created tables"
         | Error exn -> failwith exn.Message)
 
-let saveEvent connection (event: Event.Event) (serializedEvent: SerializedEvent) =
+let saveEvent connection (preprocessedEvent: StoredEvent) =
+    let event = preprocessedEvent.Event
     let (EventId eventId) = event.Id 
     let (XOnlyPubKey xOnlyPubkey) = event.PubKey
     let pubkey = xOnlyPubkey.ToBytes()
@@ -58,7 +59,7 @@ let saveEvent connection (event: Event.Event) (serializedEvent: SerializedEvent)
             "@content", Sqlite.string event.Content
             "@kind", Sqlite.int (int event.Kind)
             "@createdAt", Sqlite.dateTime event.CreatedAt
-            "@rawEvent", Sqlite.string serializedEvent
+            "@rawEvent", Sqlite.string preprocessedEvent.Serialized
             "@deleted", Sqlite.bool false ] ]
         
         if tags.Length > 0 then
@@ -70,21 +71,6 @@ let saveEvent connection (event: Event.Event) (serializedEvent: SerializedEvent)
                 "@value", Sqlite.string value]
         )
     ]
-    |> AsyncResult.map (fun _ -> {
-        Event = event
-        Id = Utils.toHex eventId
-        PubKey = Utils.toHex pubkey
-        Serialized = serializedEvent
-        Seen = DateTime.UtcNow
-        RefEvents =
-            tags
-            |> List.filter (fun (k,v) -> k = "e")
-            |> List.map snd
-        RefPubKeys =
-            tags
-            |> List.filter (fun (k,v) -> k = "p")
-            |> List.map snd
-    })
     
 let deleteEvents connection (XOnlyPubKey author) eventIds =
     let eventIdsParameters = String.Join(",", eventIds |> List.mapi (fun i _ -> $"@eventId{i}"))
