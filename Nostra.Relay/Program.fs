@@ -1,10 +1,13 @@
 ﻿module Relay
 
 open System.Collections.Generic
+open System.IO
 open System.Threading
+open Fable.Core.JS
 open Microsoft.FSharp.Control
 open FsToolkit.ErrorHandling
 open Nostra
+open Nostra.ClientContext
 open Nostra.Event
 open Nostra.Relay
 open Relay.Request
@@ -16,69 +19,80 @@ open Suave
 open Suave.Sockets
 open Suave.Sockets.Control
 open Suave.WebSocket
+
+type Context = {
+    eventStore : EventStore
+    clientRegistry : ClientRegistry
+    logger: IOLogger
+}
+           
+
+let webSocketHandler () =
+    let handle (env : Context) (webSocket : WebSocket) (context: HttpContext) =
+        let subscriptions = Dictionary<SubscriptionId, Filter list>()
+
+        let send = 
+            let worker =
+                MailboxProcessor<RelayMessage>.Start(fun inbox ->
+                    let rec loop () = async { 
+                        let! msg = inbox.Receive()
+                        let! result = webSocket.send Text (toPayload msg) true
+                        return! loop ()
+                    }
+                    loop () )
+            worker.Post
+       
+        let notifyEvent : EventEvaluator =
+            fun event ->
+                subscriptions
+                |> Seq.map (fun (KeyValue(s,fs)) -> s, Filter.eventMatchesAnyFilter fs event)
+                |> Seq.tryFind(fun (_, m) -> m = true)
+                |> Option.iter (fun (subscriptionId, _) ->
+                    send (RMEvent (subscriptionId, event.Serialized)))
         
-let webSocketHandler (eventStore : EventStore) (clientRegistry : ClientRegistry) (webSocket : WebSocket) (context: HttpContext) =
+        let clientId =
+            let ip = context.clientIp true []
+            let port = context.clientPort true []
+            ClientId(ip , port)
 
-    let subscriptions = Dictionary<SubscriptionId, Filter list>()
-
-    let send = 
-        let worker =
-            MailboxProcessor<RelayMessage>.Start(fun inbox ->
-                let rec loop () = async { 
-                    let! msg = inbox.Receive()
-                    let! result = webSocket.send Text (toPayload msg) true
-                    return! loop ()
+        let processRequest req = MessageProcessing.processRequest env.eventStore subscriptions env.clientRegistry req
+            
+        let rec loop () = socket {
+            let! msg = webSocket.read()
+            match msg with
+            | Text, data, true ->
+                let requestText = UTF8.toString data
+                env.logger.logDebug requestText
+                asyncResult {
+                    let! relayMessages = processRequest requestText
+                    match relayMessages with
+                    | [ ] -> return ()
+                    | (final::messages) ->
+                        messages
+                        |> List.rev
+                        |> List.iter send 
+                        send final 
+                        return ()
                 }
-                loop () )
-        worker.Post
-   
-    let notifyEvent : EventEvaluator =
-        fun event ->
-            subscriptions
-            |> Seq.map (fun (KeyValue(s,fs)) -> s, Filter.eventMatchesAnyFilter fs event)
-            |> Seq.tryFind(fun (_, m) -> m = true)
-            |> Option.iter (fun (subscriptionId, _) ->
-                send (RMEvent (subscriptionId, event.Serialized)))
-    
-    let clientId =
-        let ip = context.clientIp true []
-        let port = context.clientPort true []
-        ClientId(ip , port)
+                |> Async.RunSynchronously
+                |> function
+                    | Ok () -> ()
+                    | Error e ->
+                        env.logger.logError (e.ToString())
+                        send (RMNotice "Invalid message received")  
 
-    let processRequest req = MessageProcessing.processRequest eventStore subscriptions clientRegistry req
+                return! loop()
+            | Close, _, _ ->
+                env.clientRegistry.unsubscribe clientId
+                let emptyResponse = [||] |> ByteSegment
+                do! webSocket.send Close emptyResponse true
+            | _ ->
+                return! loop()
+        }
         
-    let rec loop () = socket {
-        let! msg = webSocket.read()
-        match msg with
-        | Text, data, true ->
-            let requestText = UTF8.toString data
-            asyncResult {
-                let! relayMessages = processRequest requestText
-                match relayMessages with
-                | [ ] -> return ()
-                | (final::messages) ->
-                    messages
-                    |> List.rev
-                    |> List.iter send 
-                    send final 
-                    return ()
-            }
-            |> Async.RunSynchronously
-            |> function
-                | Ok () -> ()
-                | Error e -> send (RMNotice "Invalid message received")  
-
-            return! loop()
-        | Close, _, _ ->
-            clientRegistry.unsubscribe clientId
-            let emptyResponse = [||] |> ByteSegment
-            do! webSocket.send Close emptyResponse true
-        | _ ->
-            return! loop()
-    }
-    
-    clientRegistry.subscribe clientId notifyEvent   
-    loop ()
+        env.clientRegistry.subscribe clientId notifyEvent   
+        loop ()
+    Monad.Reader (fun (ctx : Context) -> handle ctx)
     
 open Suave.Operators
 open Suave.Filters
@@ -93,20 +107,31 @@ let relayInformationDocument =
     >=> Writers.setHeader "Access-Control-Allow-Headers" "*"
     >=> Writers.setHeader "Access-Control-Allow-Methods" "*"
 
-let app : WebPart =
+let buildContext (connectionString : string) (logger: TextWriter) =
     // let dbconnection = Database.connection "Data Source=:memory:"
-    let dbconnection = Database.connection "Data Source=mydb.db"
-
+    let dbconnection = Database.connection connectionString
     Database.createTables dbconnection
-    
-    let eventStore = {
-        saveEvent = Database.saveEvent dbconnection
-        deleteEvents = Database.deleteEvents dbconnection
-        fetchEvents = Database.fetchEvents dbconnection
-    }
-    let clientRegistry = ClientRegistry.createClientRegistry ()
-    
-    let ws = webSocketHandler eventStore clientRegistry
+
+    {    
+        eventStore = {
+            saveEvent = Database.saveEvent dbconnection
+            deleteEvents = Database.deleteEvents dbconnection
+            fetchEvents = Database.fetchEvents dbconnection
+        }
+        clientRegistry = createClientRegistry ()
+        logger = {
+            logInfo = logger.WriteLine
+            logDebug = logger.WriteLine
+            logError = logger.WriteLine
+        }
+    }   
+
+open System
+
+let app : WebPart =   
+    let env = buildContext "Data Source=mydb.db" Console.Out
+    let wsHandler = Monad.injectedWith env (webSocketHandler ())
+    //let ws = Monad.injectedWith ctx webSocketHandler 
 
     let handleRequest continuation (ctx : HttpContext) =
         let acceptHeader = ctx.request.header("Accept")
@@ -116,8 +141,8 @@ let app : WebPart =
         | _, Choice1Of2 "websocket" -> handShake continuation ctx
         | _ -> OK "Use a Nostr client" ctx 
             
-    choose [
-        path "/" >=> handleRequest ws
+    choose [ 
+        path "/" >=> handleRequest wsHandler
         POST >=> path "/api/req" >=> 
             fun ctx ->
                 let filterResult =
@@ -127,7 +152,7 @@ let app : WebPart =
                 match filterResult with
                 | Ok filter ->
                     asyncResult {
-                        let! events = filterEvents (eventStore.fetchEvents) [filter]
+                        let! events = filterEvents (env.eventStore.fetchEvents) [filter]
                         return! events
                                 |> List.map Encode.string
                                 |> Encode.list
@@ -142,7 +167,6 @@ let app : WebPart =
                 | Result.Error e -> BAD_REQUEST e ctx
     ]
 
-open System
 
 [<EntryPoint>]
 let main argv =

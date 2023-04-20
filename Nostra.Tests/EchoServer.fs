@@ -33,6 +33,7 @@ module EchoServer =
                 )
         )
         Async.Start(server, ct)
+        listening |> Async.RunSynchronously |> ignore
         port
 
 module Client =
@@ -59,7 +60,6 @@ module Client =
         
 module Relay =    
     open Relay
-    open EventStore
     
     let startRelay ct =
         let env = buildContext "Data Source=:memory:" Console.Out
