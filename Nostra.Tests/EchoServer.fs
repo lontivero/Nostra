@@ -1,6 +1,7 @@
 namespace Nostra.Tests
 
 open System
+open Nostra
 open Suave
 open Suave.Filters
 open Suave.WebSocket
@@ -60,27 +61,15 @@ module Relay =
     open Relay
     open EventStore
     
-    let startRelay port ct =
-        let dbconnection = Database.connection "Data Source=:memory:"
-
-        Database.createTables dbconnection
+    let startRelay ct =
+        let env = buildContext "Data Source=:memory:" Console.Out
+        let wsHandler = Monad.injectedWith env (webSocketHandler ())
         
-        let eventStore = {
-            saveEvent = Database.saveEvent dbconnection
-            deleteEvents = Database.deleteEvents dbconnection
-            fetchEvents = Database.fetchEvents dbconnection
-        }
-        let clientRegistry = ClientRegistry.createClientRegistry ()
-        
-        let ws = webSocketHandler eventStore clientRegistry
-
-        let local = Suave.Http.HttpBinding.createSimple HTTP "127.0.0.1" port
-        let conf = { defaultConfig with cancellationToken = ct; bindings = [local] }
-        let listening, server = startWebServerAsync conf (
-            path "/" >=> handShake ws)
-        Async.Start(server, ct)
-        port
-       
-    let startRelayRandomPort ct =
         let port = 8000 + Random.Shared.Next(2000)
-        startRelay port ct
+        let local = Http.HttpBinding.createSimple HTTP "127.0.0.1" port
+        let conf = { defaultConfig with cancellationToken = ct; bindings = [local] }
+        let listening, server = startWebServerAsync conf (path "/" >=> handShake wsHandler)
+
+        Async.Start(server, ct)
+        listening |> Async.RunSynchronously |> ignore
+        port       

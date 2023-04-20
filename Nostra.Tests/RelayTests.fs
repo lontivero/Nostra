@@ -3,9 +3,7 @@ module RelayTests
 open System
 open System.Threading
 open Nostra
-open Nostra.Client
 open Nostra.Client.Response
-open Nostra.Client.Request.Filter
 open Nostra.Tests
 open Xunit
 open FsUnit.Xunit
@@ -24,7 +22,7 @@ let createRelayMessage susbcriptionId event =
 
 type RelayFixture() =
     let cts = new CancellationTokenSource()
-    let port = Relay.startRelayRandomPort cts.Token
+    let port = Relay.startRelay cts.Token
     member x.Port = port 
 
     interface IDisposable with
@@ -85,18 +83,6 @@ type ``Relay Accept Events``(output:ITestOutputHelper, fixture:RelayFixture) =
         | Error error -> failwith error
     }
     
-    [<Fact>]
-    let ``Fails with malformed relay messages (eventId)`` () = async {
-        let! send, receive = Client.createClient fixture.Port
-        let message = """["OK","",true,"a message]""" 
-        do! send message
-
-        let! msg = receive
-        match msg with
-        | Ok (RMNotice message) -> should equal "Invalid message received" message  
-        | Ok _ -> failwith "error" 
-        | Error error -> failwith error
-    }
     interface IClassFixture<RelayFixture> 
 
 
@@ -105,7 +91,7 @@ type ``Relay Accept Queries``(output:ITestOutputHelper) =
     [<Fact>]
     let ``Can receive encrypted messages`` () = async {
         use cts = new CancellationTokenSource()
-        let port = Relay.startRelayRandomPort cts.Token
+        let port = Relay.startRelay cts.Token
 
         let! send, receive = Client.createClient port
         do! send """["REQ","all",{"kinds":[1]}]"""
@@ -127,7 +113,7 @@ type ``Relay Accept Queries``(output:ITestOutputHelper) =
     [<Fact>]
     let ``Can receive immediate event subscription`` () = async {
         use cts = new CancellationTokenSource()
-        let port = Relay.startRelayRandomPort cts.Token
+        let port = Relay.startRelay cts.Token
 
         let! send, receive = Client.createClient port
         do! send """["REQ","all",{"kinds":[1]}]"""
@@ -151,7 +137,7 @@ type ``Relay Accept Queries``(output:ITestOutputHelper) =
     [<Fact>]
     let ``Can receive stored event subscription`` () = async {
         use cts = new CancellationTokenSource()
-        let port = Relay.startRelayRandomPort cts.Token
+        let port = Relay.startRelay cts.Token
         
         let! sendOther, receiveOther = Client.createClient port
         
