@@ -2,6 +2,7 @@
 
 A library to interact with the [Nostr Protocol](https://github.com/nostr-protocol/nostr) written in F#.
 
+[![.NET](https://github.com/lontivero/Nostra/actions/workflows/dotnet.yml/badge.svg)](https://github.com/lontivero/Nostra/actions/workflows/dotnet.yml)
 
 NOTE: This is a work in progress!
 
