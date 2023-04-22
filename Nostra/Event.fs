@@ -45,8 +45,10 @@ module Event =
         | Delete = 5
         | Repost = 6
         | Reaction = 7
-        | EphemeralStart = 2_000
-        | EphemeralEnd = 3_000
+        | ReplaceableStart = 10_000
+        | ReplaceableEnd = 20_000
+        | EphemeralStart = 20_000
+        | EphemeralEnd = 30_000
 
     type Event =
         { Id: EventId
@@ -163,4 +165,9 @@ module Event =
         computedId = id && pubkey.SigVerifyBIP340(signature, id)
 
     let isEphemeral (event: Event) =
-        event.Kind >= Kind.EphemeralStart && event.Kind < Kind.EphemeralEnd
+        event.Kind >= Kind.EphemeralStart &&
+        event.Kind < Kind.EphemeralEnd
+        
+    let isReplaceable (event: Event) =
+        event.Kind >= Kind.ReplaceableStart &&
+        event.Kind < Kind.ReplaceableEnd

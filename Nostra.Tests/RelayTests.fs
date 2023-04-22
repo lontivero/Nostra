@@ -161,3 +161,32 @@ type ``Relay Accept Queries``(output:ITestOutputHelper) =
         | _ -> failwith "error"
     }
     
+    [<Fact>]
+    let ``Can delete events`` () = async {
+        use cts = new CancellationTokenSource()
+        let port = Relay.startRelay cts.Token
+        
+        let! sendOther, receiveOther = Client.createClient port
+        
+        let secret = Key.createNewRandom ()
+        let event1 = Event.createNoteEvent "hello 1" |> Event.sign secret
+        let event2 = Event.createNoteEvent "hello 2" |> Event.sign secret
+        let serializedEvent1 = Event.serialize event1
+        let serializedEvent2 = Event.serialize event2
+        do! sendOther $"""["EVENT",{serializedEvent1}]"""       
+        do! sendOther $"""["EVENT",{serializedEvent2}]"""       
+        let! _ = receiveOther
+        let! _ = receiveOther
+
+        let deleteEvent = Event.createDeleteEvent [event1.Id; event2.Id] "" |> Event.sign secret
+        let serializedDeleteEvent = Event.serialize deleteEvent
+        do! sendOther $"""["EVENT",{serializedDeleteEvent}]"""       
+        let! ok = receiveOther
+        
+        let! send, receive = Client.createClient port
+        do! send """["REQ","all",{"kinds":[1]}]"""
+        let! eose = receive
+        match eose with
+        | Ok (RMEOSE "all") -> ()
+        | _ -> failwith "error"
+    }

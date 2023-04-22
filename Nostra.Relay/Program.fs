@@ -131,8 +131,7 @@ open System
 let app : WebPart =   
     let env = buildContext "Data Source=mydb.db" Console.Out
     let wsHandler = Monad.injectedWith env (webSocketHandler ())
-    //let ws = Monad.injectedWith ctx webSocketHandler 
-
+    
     let handleRequest continuation (ctx : HttpContext) =
         let acceptHeader = ctx.request.header("Accept")
         let upgradeHeader = ctx.request.header("Upgrade")
