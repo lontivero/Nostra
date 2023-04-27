@@ -8,7 +8,7 @@ open Nostra.Relay
 
 type EventSaver = StoredEvent -> Async<Result<unit, exn>>
 type EventsDeleter = XOnlyPubKey -> string list -> Async<Result<int list, exn>>
-type EventsFetcher = Request.Filter -> Async<Result<SerializedEvent list, exn>>
+type EventsFetcher = Request.Filter list -> Async<Result<SerializedEvent list, exn>>
 
 type EventStore = {
     saveEvent : EventSaver
@@ -16,22 +16,9 @@ type EventStore = {
     fetchEvents : EventsFetcher
 }
 
-let filterEvents (fetchEvents : EventsFetcher) filters = asyncResult {
-    let! matchingEventsResult =
-        filters
-        |> List.map fetchEvents
-        |> List.sequenceAsyncA
-        
-    let matchingEvents = 
-        matchingEventsResult
-        |> List.sequenceResultM
-        |> Result.bind (fun eventsList ->
-            eventsList
-            |> List.concat
-            |> Ok)
-        
-    return! matchingEvents
-    }
+let filterEvents (fetchEvents : EventsFetcher) filters = 
+    filters
+    |> fetchEvents
     
 
 let storeEvent (saveEvent : EventSaver) (deleteEvents : EventsDeleter) preprocessed = async {
