@@ -128,14 +128,6 @@ let deleteEvents connection (XOnlyPubKey author) eventIds =
     ]
 
 let buildQuery (filter: Request.Filter) =
-    let orConditions f lst =
-        lst
-        |> List.map f
-        |> String.concat " OR "
-        |> function
-            | "" -> None
-            | condition -> Some condition
-
     let combineConditions (conditions : (string * (string * SqliteParameter) list) list)  =
         match conditions with
         | [] -> None
@@ -186,28 +178,21 @@ let buildQuery (filter: Request.Filter) =
         filter.Until
         |> Option.map Utils.toUnixTime
         |> Option.map (fun until -> $"{table}.created_at < @{table}_created_at", [$"@{table}_created_at", Sqlite.int (int until)])
-        
-    let tagEventCondition =
-        filter.Events
-        |> inConditions "t.value" Sqlite.string
-        |> Option.map (fun x -> x :: List.choose id [kindCondition "t"; sinceCondition "t"; untilCondition "t"])
-        |> Option.bind combineConditions
-        |> Option.map (fun (s, v) -> $"e.id IN (SELECT t.event_id FROM tags t WHERE t.name = 'e' AND {s})", v)
+            
+    let tagsCondition =
+        let tagCondition tag values =
+            values
+            |> inConditions "t.value" Sqlite.string
+            |> Option.map (fun x -> x :: List.choose id [kindCondition "t"; sinceCondition "t"; untilCondition "t"])
+            |> Option.bind combineConditions
+            |> Option.map (fun (s, v) -> $"e.id IN (SELECT t.event_id FROM tags t WHERE t.name = '{tag}' AND {s})", v)
 
-    let tagPubkeyTagCondition =
-        filter.PubKeys
-        |> inConditions "t.value" Sqlite.string
-        |> Option.map (fun (s, v) -> $"e.id IN (SELECT t.event_id FROM tags t WHERE t.name = 'p' AND {s})", v)
-
-    let allTagConditions =
-        match tagEventCondition, tagPubkeyTagCondition with
-        | None, None -> None
-        | _ ->
-            [tagEventCondition; tagPubkeyTagCondition]
-            |> List.choose id 
-            |> combineConditions
+        filter.Tags
+        |> List.map (fun (tag, values) -> tagCondition tag[1..2] values)
+        |> List.choose id
+        |> combineConditions
   
-    [notHidden; authCondition; kindCondition "e"; idCondition; allTagConditions; sinceCondition "e"; untilCondition "e"]
+    [notHidden; authCondition; kindCondition "e"; idCondition; tagsCondition; sinceCondition "e"; untilCondition "e"]
     |> List.choose id 
     |> combineConditions
     |> Option.map (fun (s,v) -> $"SELECT e.serialized_event FROM events e WHERE {s}", v)
