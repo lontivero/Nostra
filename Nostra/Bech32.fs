@@ -113,3 +113,127 @@ module Bech32 =
             else
                 None)
         |> Option.map (fun data -> (hrp, toBase256 data))
+
+module Shareable =
+    open System
+    open System.Text
+    open Microsoft.FSharp.Collections
+    open NBitcoin.Secp256k1
+
+    type Relay = string
+    type Author = ECXOnlyPubKey
+    type Kind = int
+    type ShareableEntity =
+    | NSec of ECPrivKey
+    | NPub of ECXOnlyPubKey
+    | Note of EventId
+    | NProfile of ECXOnlyPubKey * Relay list
+    | NEvent of EventId * Relay list * Author option * Kind option
+    | NRelay of Relay
+
+    let private _encode hrp bytesArr =
+        Bech32.encode hrp (bytesArr |> Array.toList)
+        
+    let encode = function
+        | NSec ecPrivKey ->
+            let bytes = Array.create 32 0uy
+            ecPrivKey.WriteToSpan bytes
+            bytes |> _encode "nsec" 
+        | NPub ecxOnlyPubKey ->
+            ecxOnlyPubKey.ToBytes() |> _encode "npub" 
+        | Note(EventId eventId) ->        
+            eventId |> _encode "note"
+        | NProfile(ecxOnlyPubKey, relays) ->
+            let pubkey = ecxOnlyPubKey.ToBytes() |> Array.toList
+            let encodedPubKey = 0uy :: 32uy :: pubkey
+            let encodedRelays =
+                relays
+                |> List.map (Encoding.ASCII.GetBytes >> Array.toList)
+                |> List.map (fun encodedRelay -> 1uy :: byte (encodedRelay.Length) :: encodedRelay)
+                |> List.concat
+            encodedPubKey @ encodedRelays
+            |> Bech32.encode "nprofile"
+        | NEvent(EventId eventId, relays, author, kind) ->
+            let encodedRelays =
+                relays
+                |> List.map (Encoding.ASCII.GetBytes >> Array.toList)
+                |> List.map (fun encodedRelay -> 1uy :: byte (encodedRelay.Length) :: encodedRelay)
+                |> List.concat
+            let encodedAuthor =
+                author
+                |> Option.map (fun author -> 2uy :: 32uy :: List.ofArray (author.ToBytes()))
+                |> Option.defaultValue []
+            let encodedKind =
+                kind
+                |> Option.map (fun kind -> 3uy :: 4uy :: List.ofArray (BitConverter.GetBytes kind))
+                |> Option.defaultValue []
+                
+            [
+                0uy :: 32uy :: (List.ofArray eventId)
+                encodedRelays
+                encodedAuthor
+                encodedKind
+            ]
+            |> List.concat
+            |> Bech32.encode "nevent"
+        | NRelay relayUrl ->
+            relayUrl
+            |> Encoding.ASCII.GetBytes
+            |> List.ofArray
+            |> fun encodedRelay -> 0uy :: byte (encodedRelay.Length) :: encodedRelay
+            |> Bech32.encode "nrelay"  
+        
+    let parseTLV (bytes : byte list) = 
+        let rec parse = function
+            | typ :: len :: rest -> (typ, rest[..(int len) - 1]) :: (parse rest[int len..])
+            | _ -> []
+        
+        let elemByType = parse bytes
+        [0uy..3uy]
+        |> List.map (fun typ0 -> elemByType |> List.filter (fun (typ1, es) -> typ0 = typ1) |> List.map snd)
+                    
+    let decode str =
+        Bech32.decode str
+        |> Option.bind (fun (hrp, bytes) ->
+            let byteArray = bytes |> List.toArray
+            match hrp with
+            | "nsec" ->
+                ECPrivKey.TryCreate byteArray
+                |> Option.ofTuple
+                |> Option.map NSec               
+            | "npub" ->
+                ECXOnlyPubKey.TryCreate byteArray
+                |> Option.ofTuple
+                |> Option.map NPub
+            | "note" ->
+                Some (Note (EventId byteArray))
+            | "nprofile" ->
+                match parseTLV bytes with
+                | [[secKey]; relays; _; _] ->
+                    ECXOnlyPubKey.TryCreate (secKey |> List.toArray)
+                    |> Option.ofTuple
+                    |> Option.map (fun key -> NProfile(key, relays |> List.map (List.toArray >> Encoding.ASCII.GetString)))
+                | _ -> None
+            | "nevent" ->
+                match parseTLV bytes with
+                | [[eventId]; relays; authors; kinds]  ->
+                    Some (NEvent(
+                            EventId (eventId |> List.toArray),
+                            relays |> List.map (List.toArray >> Encoding.ASCII.GetString),
+                            authors
+                            |> List.tryHead
+                            |> Option.bind (fun author ->
+                                ECXOnlyPubKey.TryCreate (author |> List.toArray)
+                                |> Option.ofTuple),
+                            kinds
+                            |> List.tryHead
+                            |> Option.map (List.head >> int)
+                        ))
+                | _ -> None
+            | "nrelay" ->
+                match parseTLV bytes with
+                | [[relayUrl]; _; _; _]  ->
+                    Some (NRelay(Encoding.ASCII.GetString (List.toArray relayUrl)))
+                | _ -> None                
+            | _ -> None
+            )

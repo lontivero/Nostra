@@ -22,6 +22,12 @@ module Utils =
     let toUnixTime date =
         date - DateTime.UnixEpoch |> (fun t -> t.TotalSeconds) |> uint32
 
+[<RequireQualifiedAccess>]
+module Option =
+    let ofTuple = function
+        | true, value -> Some value
+        | _ -> None
+
 module Monad =
     type Reader<'environment, 'a> = Reader of ('environment -> 'a)
 

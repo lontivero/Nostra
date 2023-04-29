@@ -7,10 +7,10 @@
     </PropertyGroup>
 
     <ItemGroup>
-        <Compile Include="Bech32.fs" />
         <Compile Include="Utils.fs" />
         <Compile Include="Types.fs" />
         <Compile Include="Event.fs" />
+        <Compile Include="Bech32.fs" />
         <Compile Include="Client.fs" />
         <Compile Include="Relay.fs" />
     </ItemGroup>
@@ -21,8 +21,8 @@
     </ItemGroup>
 
     <ItemGroup>
-        <None Include="../LICENSE" Pack="true" PackagePath=""/>
-        <None Include="../README.md" Pack="true" PackagePath=""/>
+        <None Include="../LICENSE" Pack="true" PackagePath="" />
+        <None Include="../README.md" Pack="true" PackagePath="" />
     </ItemGroup>
     
     <PropertyGroup>

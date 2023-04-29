@@ -1,3 +1,5 @@
+module ClientTests
+
 open System
 open System.Threading
 open Nostra
