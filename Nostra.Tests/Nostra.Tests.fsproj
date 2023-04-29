@@ -12,6 +12,7 @@
         <Compile Include="EchoServer.fs" />
         <Compile Include="RelayTests.fs" />
         <Compile Include="ClientTests.fs" />
+        <Compile Include="Bech32.fs" />
     </ItemGroup>
 
     <ItemGroup>
