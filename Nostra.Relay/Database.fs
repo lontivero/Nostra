@@ -3,6 +3,7 @@ module Database
 open System
 open FsToolkit.ErrorHandling
 open Fumble
+open Microsoft.Data.SqlClient
 open Microsoft.Data.Sqlite
 open Nostra
 open Nostra.Relay
@@ -39,13 +40,14 @@ let createTables connection =
 
         CREATE TABLE IF NOT EXISTS tags (
             id INTEGER PRIMARY KEY,
+            event_id INTEGER NOT NULL,
             event_hash BLOB NOT NULL, 
             name TEXT NOT NULL,
             value TEXT NOT NULL,
             created_at INTEGER NOT NULL,
             kind INTEGER NOT NULL,
-            FOREIGN KEY (event_hash)
-                REFERENCES events(id) ON UPDATE CASCADE ON DELETE CASCADE
+            FOREIGN KEY(event_id)
+                REFERENCES event(id) ON UPDATE CASCADE ON DELETE CASCADE
             );
 
         CREATE INDEX IF NOT EXISTS tag_value_index ON tags(value);
@@ -126,56 +128,81 @@ let deleteEvents connection (XOnlyPubKey author) eventIds =
     ]
 
 let buildQuery (filter: Request.Filter) =
-    let orConditions f lst =
-        lst
-        |> List.map f
-        |> String.concat " OR "
-        |> function
-            | "" -> None
-            | condition -> Some condition
+    let combineConditions (conditions : (string * (string * SqliteParameter) list) list)  =
+        match conditions with
+        | [] -> None
+        | cs -> 
+            let expressions =
+                cs
+                |> List.map fst
+                |> String.concat " AND "
+                
+            let values =
+                cs
+                |> List.collect snd
+            
+            Some (expressions, values)
+    
+    let inConditions field sqltype values =
+        match values with
+        | [] -> None
+        | _ -> 
+            let pn = values |> List.mapi (fun i v -> (String.replace "." "_" field) + string i, v)
+            let fieldNames = pn |> List.map (fun (x,_) -> "@"+x) |> String.concat ","
+            let fieldValues = pn |> List.map (fun (name, value) -> name, sqltype value )
+            Some ($"{field} IN ({fieldNames})", fieldValues)
         
+    let notHidden = Some ("e.deleted = @e_deleted", ["@e_deleted", Sqlite.bool false])
+
     let authCondition =
         filter.Authors
-        |> orConditions (fun auth -> $"author = '{auth}'")
-
-    let kindCondition =
-        filter.Kinds
-        |> orConditions (fun kind -> $"kind = {int kind}")
+        |> List.map Utils.fromHex
+        |> inConditions "e.author" Sqlite.bytes 
 
     let idCondition =
         filter.Ids
-        |> orConditions (fun eventId -> $"event_hash = {eventId}")
-        
-    let sinceCondition =
+        |> List.map Utils.fromHex
+        |> inConditions "e.event_hash" Sqlite.bytes
+
+    let kindCondition table =
+        filter.Kinds
+        |> List.map int
+        |> inConditions $"{table}.kind" Sqlite.int
+
+    let sinceCondition table =
         filter.Since
-        |> Option.map (fun since -> $"created_at > {Utils.toUnixTime since}")
+        |> Option.map Utils.toUnixTime
+        |> Option.map (fun since -> $"{table}.created_at > @{table}_created_at", [$"@{table}_created_at", Sqlite.int (int since)])
     
-    let untilCondition =
+    let untilCondition table =
         filter.Until
-        |> Option.map (fun until -> $"created_at < {Utils.toUnixTime until}")
-    
-    let eventTagCondition =
-        filter.Events
-        |> orConditions (fun e -> $"@value = {e}")
-        |> Option.map (fun cond -> $"SELECT event_hash WHERE @name = 'e' AND ({cond})")
+        |> Option.map Utils.toUnixTime
+        |> Option.map (fun until -> $"{table}.created_at < @{table}_created_at", [$"@{table}_created_at", Sqlite.int (int until)])
+            
+    let tagsCondition =
+        let tagCondition tag values =
+            values
+            |> inConditions "t.value" Sqlite.string
+            |> Option.map (fun x -> x :: List.choose id [kindCondition "t"; sinceCondition "t"; untilCondition "t"])
+            |> Option.bind combineConditions
+            |> Option.map (fun (s, v) -> $"e.id IN (SELECT t.event_id FROM tags t WHERE t.name = '{tag}' AND {s})", v)
 
-    let pubkeyTagCondition =
-        filter.PubKeys
-        |> orConditions (fun e -> $"@value = {e}")
-        |> Option.map (fun cond -> $"SELECT event_hash WHERE @name = 'p' AND ({cond})")
-
-    let nothidden = Some "deleted = false"
-    
-    let allConditions =
-        [nothidden; authCondition; kindCondition; idCondition; eventTagCondition; pubkeyTagCondition; sinceCondition; untilCondition ]
+        filter.Tags
+        |> List.map (fun (tag, values) -> tagCondition tag[1..2] values)
         |> List.choose id
-        |> String.concat " AND "
-        
-    $"SELECT * FROM events WHERE {allConditions}"
+        |> combineConditions
+  
+    [notHidden; authCondition; kindCondition "e"; idCondition; tagsCondition; sinceCondition "e"; untilCondition "e"]
+    |> List.choose id 
+    |> combineConditions
+    |> Option.map (fun (s,v) -> $"SELECT e.serialized_event FROM events e WHERE {s}", v)
+    |> Option.defaultValue ("SELECT e.serialized_event FROM events e WHERE e.deleted = false", [])
     
+        
 let fetchEvents connection filter =
-    let query = buildQuery filter
+    let query, parameters = buildQuery filter
     connection
     |> Sqlite.query query
+    |> Sqlite.parameters parameters
     |> Sqlite.executeAsync (fun read -> read.string "serialized_event")
    

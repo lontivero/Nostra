@@ -3,7 +3,6 @@
 open System.Collections.Generic
 open System.IO
 open System.Threading
-open Fable.Core.JS
 open Microsoft.FSharp.Control
 open FsToolkit.ErrorHandling
 open Nostra
@@ -108,7 +107,6 @@ let relayInformationDocument =
     >=> Writers.setHeader "Access-Control-Allow-Methods" "*"
 
 let buildContext (connectionString : string) (logger: TextWriter) =
-    // let dbconnection = Database.connection "Data Source=:memory:"
     let dbconnection = Database.connection connectionString
     Database.createTables dbconnection
 
@@ -166,15 +164,27 @@ let app : WebPart =
                 | Result.Error e -> BAD_REQUEST e ctx
     ]
 
+open Suave.Logging
+
+let loggingOptions =
+  { Literate.LiterateOptions.create() with
+      getLogLevelText = function Verbose->"V" | Debug->"D" | Info->"I" | Warn->"W" | Error->"E" | Fatal->"F" }
+
+let logger =
+  LiterateConsoleTarget(
+    name = [|"Example"|],
+    minLevel = Verbose,
+    options = loggingOptions,
+    outputTemplate = "[{level}] {timestampUtc:o} {message} [{source}]{exceptions}"
+  ) :> Logger
 
 [<EntryPoint>]
 let main argv =
     let cts = new CancellationTokenSource()
-    let conf = { defaultConfig with cancellationToken = cts.Token }
+    let conf = { defaultConfig with cancellationToken = cts.Token; logger = logger }
     let listening, server = startWebServerAsync conf app
 
     Async.Start(server, cts.Token)
-    printfn "Make requests now"
     Console.ReadKey true |> ignore  
     cts.Cancel()
 

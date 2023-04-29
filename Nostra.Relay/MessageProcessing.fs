@@ -28,6 +28,7 @@ let preprocessEvent (event : Event) serializedEvent =
         PubKey = Utils.toHex pubkey
         Serialized = serializedEvent
         Seen = DateTime.UtcNow
+        Tags = event.Tags
         RefEvents =
             tags
             |> List.filter (fun (k,v) -> k = "e")

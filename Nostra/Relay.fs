@@ -13,6 +13,7 @@ module Relay =
         PubKey: string
         Serialized: SerializedEvent
         Seen: DateTime
+        Tags: Tag list
         RefEvents: string list
         RefPubKeys: string list
     }
@@ -25,24 +26,41 @@ module Relay =
             Limit: int option 
             Since: DateTime option 
             Until: DateTime option 
-            Events: string list 
-            PubKeys: string list 
+            Tags: Tag list
         }
 
         module Filter =
             module Decode =
                 let filter : Decoder<Filter> =
-                    Decode.object (fun get -> {
+                    let knownDecoder = Decode.object (fun get -> {
                         Ids = get.Optional.Field "ids" (Decode.list Decode.string) |> Option.defaultValue [] 
                         Kinds = get.Optional.Field "kinds" (Decode.list Decode.Enum.int) |> Option.defaultValue []
                         Authors = get.Optional.Field "authors" (Decode.list Decode.string) |> Option.defaultValue []
                         Limit = get.Optional.Field "limit" Decode.int
                         Since = get.Optional.Field "since" Decode.unixDateTime
                         Until = get.Optional.Field "until" Decode.unixDateTime
-                        Events = get.Optional.Field "#e" (Decode.list Decode.string) |> Option.defaultValue []
-                        PubKeys = get.Optional.Field "#p" (Decode.list Decode.string) |> Option.defaultValue []
+                        Tags = []
                     })
-
+                    
+                    let tagsDecoder : Decoder<Tag list> =
+                        fun path value ->
+                            match Decode.keys path value with
+                            | Ok objecKeys ->
+                                let tagKeys = objecKeys |> Seq.filter (fun t -> t.Length > 1 && t.StartsWith "#") 
+                                (Ok [], tagKeys ) ||> Seq.fold (fun acc prop ->
+                                    match acc with
+                                    | Error _ -> acc
+                                    | Ok acc ->
+                                        match Decode.Helpers.getField prop value |> (Decode.list Decode.string) path with
+                                        | Error er -> Error er
+                                        | Ok value -> (prop, value)::acc |> Ok)
+                                |> Result.map List.rev
+                            | Error e -> Error e
+                              
+                    Decode.map2 (fun known tags -> { known with Tags = tags })
+                        knownDecoder
+                        tagsDecoder                
+                    
             let eventMatchesFilter (eventInfo: StoredEvent) filter =
                 let matchList items list =
                     match list with
@@ -59,12 +77,15 @@ module Relay =
                     | None, Some until -> eventInfo.Event.CreatedAt <= until
                     | Some since, Some until -> eventInfo.Event.CreatedAt >= since && eventInfo.Event.CreatedAt <= until
                 
+                let flatTags tags =
+                    tags
+                    |> List.collect  (fun (tag, values) -> List.map (fun value -> tag, value) values)
+                    
                 isInTimeWindow &&
-                filter.Ids |> matchList [eventInfo.Id] &&
-                filter.Kinds |> matchList [eventInfo.Event.Kind] &&
+                filter.Ids     |> matchList [eventInfo.Id] &&
+                filter.Kinds   |> matchList [eventInfo.Event.Kind] &&
                 filter.Authors |> matchList [eventInfo.PubKey] &&
-                filter.Events |> matchList eventInfo.RefEvents &&
-                filter.PubKeys |> matchList eventInfo.RefPubKeys
+                filter.Tags    |> flatTags |> matchList (flatTags eventInfo.Tags)                
              
             let eventMatchesAnyFilter (filters: Filter list) (event: StoredEvent) =
                 filters |> List.exists (eventMatchesFilter event)
