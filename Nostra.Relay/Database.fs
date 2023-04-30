@@ -3,7 +3,6 @@ module Database
 open System
 open FsToolkit.ErrorHandling
 open Fumble
-open Microsoft.Data.SqlClient
 open Microsoft.Data.Sqlite
 open Nostra
 open Nostra.Relay
@@ -127,80 +126,114 @@ let deleteEvents connection (XOnlyPubKey author) eventIds =
         ]
     ]
 
-let buildQuery (filter: Request.Filter) =
-    let combineConditions (conditions : (string * (string * SqliteParameter) list) list)  =
-        match conditions with
-        | [] -> None
-        | cs -> 
-            let expressions =
-                cs
-                |> List.map fst
-                |> String.concat " AND "
-                
-            let values =
-                cs
-                |> List.collect snd
-            
-            Some (expressions, values)
-    
+type Column = | Colum of string * string
+type Query =
+    | Projection of string * Expression
+and MultiValue =
+     | SimpleList of SqliteParameter list
+     | SelectList of Query
+and Expression =
+    | EqualTo of Column * SqliteParameter
+    | GreaterThan of Column * SqliteParameter
+    | LessThan of Column * SqliteParameter
+    | In of Column * MultiValue
+    | And of Expression * Expression
+
+let buildQueryForFilter (filter: Request.Filter) =
+
     let inConditions field sqltype values =
         match values with
         | [] -> None
         | _ -> 
-            let pn = values |> List.mapi (fun i v -> (String.replace "." "_" field) + string i, v)
-            let fieldNames = pn |> List.map (fun (x,_) -> "@"+x) |> String.concat ","
-            let fieldValues = pn |> List.map (fun (name, value) -> name, sqltype value )
-            Some ($"{field} IN ({fieldNames})", fieldValues)
+            let fieldValues = values |> List.map sqltype
+            Some (In (field, SimpleList fieldValues))
         
-    let notHidden = Some ("e.deleted = @e_deleted", ["@e_deleted", Sqlite.bool false])
+    let notHidden = EqualTo (Colum ("e", "deleted"), Sqlite.bool false) |> Some
 
     let authCondition =
         filter.Authors
         |> List.map Utils.fromHex
-        |> inConditions "e.author" Sqlite.bytes 
+        |> inConditions (Colum ("e", "author")) Sqlite.bytes 
 
     let idCondition =
         filter.Ids
         |> List.map Utils.fromHex
-        |> inConditions "e.event_hash" Sqlite.bytes
+        |> inConditions (Colum ("e", "event_hash")) Sqlite.bytes
 
     let kindCondition table =
         filter.Kinds
         |> List.map int
-        |> inConditions $"{table}.kind" Sqlite.int
+        |> inConditions (Colum (table, "kind")) Sqlite.int
 
     let sinceCondition table =
         filter.Since
         |> Option.map Utils.toUnixTime
-        |> Option.map (fun since -> $"{table}.created_at > @{table}_created_at", [$"@{table}_created_at", Sqlite.int (int since)])
+        |> Option.map (fun since -> GreaterThan (Colum (table, "created_at"), Sqlite.int (int since)))
     
     let untilCondition table =
         filter.Until
         |> Option.map Utils.toUnixTime
-        |> Option.map (fun until -> $"{table}.created_at < @{table}_created_at", [$"@{table}_created_at", Sqlite.int (int until)])
+        |> Option.map (fun until -> LessThan (Colum (table, "created_at"), Sqlite.int (int until)))
             
     let tagsCondition =
         let tagCondition tag values =
             values
-            |> inConditions "t.value" Sqlite.string
+            |> inConditions (Colum ("t", "value")) Sqlite.string
             |> Option.map (fun x -> x :: List.choose id [kindCondition "t"; sinceCondition "t"; untilCondition "t"])
-            |> Option.bind combineConditions
-            |> Option.map (fun (s, v) -> $"e.id IN (SELECT t.event_id FROM tags t WHERE t.name = '{tag}' AND {s})", v)
+            |> Option.map (fun conditions ->
+                let andExpr = List.reduce (fun acc expr -> And(acc, expr)) conditions 
+                let select = Projection ("SELECT t.event_id FROM tags t", And (EqualTo(Colum ("t", "name"), Sqlite.string tag), andExpr))
+                In (Colum ("e", "id"), SelectList select))
 
         filter.Tags
         |> List.map (fun (tag, values) -> tagCondition tag[1..2] values)
-        |> List.choose id
-        |> combineConditions
-  
-    [notHidden; authCondition; kindCondition "e"; idCondition; tagsCondition; sinceCondition "e"; untilCondition "e"]
-    |> List.choose id 
-    |> combineConditions
-    |> Option.map (fun (s,v) -> $"SELECT e.serialized_event FROM events e WHERE {s}", v)
-    |> Option.defaultValue ("SELECT e.serialized_event FROM events e WHERE e.deleted = false", [])
+
+    ([notHidden; authCondition; kindCondition "e"; idCondition; sinceCondition "e"; untilCondition "e"] @ tagsCondition)
+    |> List.choose id
+    |> List.reduce (fun acc expr -> And(acc, expr))
+    |> fun es -> Projection("SELECT e.serialized_event FROM events e", es)
     
-        
-let fetchEvents connection filter =
-    let query, parameters = buildQuery filter
+let rec materializeExpression expression scope =
+    let paramName (Colum(table, name)) = $"@s{scope}_{table}_{name}"
+    let columnName (Colum(table, name)) = $"{table}.{name}"
+    
+    match expression with
+    | EqualTo (column, value) -> $"{columnName column} = {paramName column}", [paramName column, value], scope 
+    | GreaterThan (column, value) -> $"{columnName column} > {paramName column}", [paramName column, value], scope
+    | LessThan (column, value) -> $"{columnName column} < {paramName column}", [paramName column, value], scope
+    | In (column, values) ->
+        match values with
+        | SimpleList values ->
+            let parameterValues =
+                values
+                |> List.mapi (fun i v -> (paramName column) + string i, v)
+            let parameterNames = String.concat "," (parameterValues |> List.map fst)
+            $"{columnName column} IN ({parameterNames})", parameterValues, scope
+        | SelectList query ->
+            let select, parameterValues, scope = materializeQuery query (scope + 1)
+            $"{columnName column} IN ({select})", parameterValues, scope
+    | And (expr1, expr2) ->
+        let s1, params1, scope = materializeExpression expr1 scope
+        let s2, params2, scope = materializeExpression expr2 scope
+        $"{s1} AND {s2}", params1 @ params2, scope      
+             
+and
+    materializeQuery (x: Query) (scope:int) =
+    match x with
+    | Projection(select, where) ->
+        let whereStr, expr, scope = materializeExpression where scope
+        $"{select} WHERE {whereStr}", expr, scope
+
+let buildQueryForFilters (filters: Request.Filter list) =
+    filters
+    |> List.map buildQueryForFilter
+    |> List.fold (fun (i, qs) query -> let s, p, j = materializeQuery query i in (j + 1, (s, p) :: qs) )  (0, [])
+    |> snd
+    |> List.rev
+    |> List.reduce (fun (select1, parms1) (select2, parms2) -> ($"{select1} UNION {select2}", parms1 @ parms2))  
+    
+let fetchEvents connection filters =
+    let query, parameters = buildQueryForFilters filters
     connection
     |> Sqlite.query query
     |> Sqlite.parameters parameters
