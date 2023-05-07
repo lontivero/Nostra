@@ -14,7 +14,7 @@ module Client =
     open Nostra.Event
 
     module Request =
-        type Filter =
+        type SubscriptionFilter =
             { Ids: EventId list
               Kinds: Kind list
               Authors: XOnlyPubKey list
@@ -37,7 +37,7 @@ module Client =
                     | None -> map
                     | Some v -> (field, encoder v) :: map
 
-                let filter (filter: Filter) =
+                let filter (filter: SubscriptionFilter) =
                     []
                     |> encodeList "ids" filter.Ids Encode.eventId
                     |> encodeList "kinds" filter.Kinds Encode.Enum.int
@@ -59,7 +59,7 @@ module Client =
                     | AllMetadata of DateTime
                     | DirectMessageFilter of XOnlyPubKey
 
-                let singleton: Filter =
+                let singleton: SubscriptionFilter =
                     { Ids = []
                       Kinds = []
                       Authors = []
@@ -106,7 +106,7 @@ module Client =
 
         type ClientMessage =
             | CMEvent of Event
-            | CMSubscribe of SubscriptionId * Filter list
+            | CMSubscribe of SubscriptionId * SubscriptionFilter list
             | CMUnsubscribe of SubscriptionId
 
         module Encode =
@@ -252,3 +252,8 @@ module Client =
 
             return (pushToRelay, receiveFromRelay, ws)
         }
+
+    [<CompiledName("ConnectToRelayAsync")>]
+    let connectToRelayAsync uri =
+        connectToRelay uri
+        |> Async.StartAsTask

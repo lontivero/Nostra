@@ -37,6 +37,11 @@ let preprocessEvent (event : Event) serializedEvent =
             tags
             |> List.filter (fun (k,v) -> k = "p")
             |> List.map snd
+        DTag =
+            tags
+            |> List.filter (fun (k,v) -> k = "d")
+            |> List.map snd
+            |> List.tryHead
     }
 
 let processRequest (eventStore : EventStore) (subscriptions : SubscriptionStore) (clientRegistry : ClientRegistry) requestText = asyncResult {
