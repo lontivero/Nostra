@@ -13,13 +13,13 @@ type ``Relay Accept Queries``(output:ITestOutputHelper) =
     [<Fact>]
     let ``Can receive immediate event subscription`` () =
         ``start relay`` ()
-        $ ``as`` Alice 
+        $ given Alice 
         $ ``connect to relay`` 
         $ ``subscribe to all events``
-        $ ``as`` Bob
+        $ given Bob
         $ ``connect to relay``
         $ ``send event`` (note "hello")
-        $ ``as`` Alice
+        $ given Alice
         $ ``wait for event`` "All"
         |>  verify (fun test ->
             let alice = test.Users[Alice]
@@ -31,10 +31,10 @@ type ``Relay Accept Queries``(output:ITestOutputHelper) =
     [<Fact>]
     let ``Can receive stored event subscription`` () =
         ``start relay`` ()
-        $ ``as`` Alice 
+        $ given Alice 
         $ ``connect to relay`` 
         $ ``send event`` (note "hello")
-        $ ``as`` Bob
+        $ given Bob
         $ ``connect to relay``
         $ ``subscribe to all events``
         |>  verify (fun test ->
@@ -42,33 +42,35 @@ type ``Relay Accept Queries``(output:ITestOutputHelper) =
             let contents = bob.ReceivedEvents |> Seq.map (fun x -> x.Content)
             should contain "hello" contents)
                     
+type ``Relay Nip09``(output:ITestOutputHelper) =
 
-type ``Relay Nip16``(output:ITestOutputHelper) =
-     
     [<Fact>]
     let ``Can delete events`` () =
         ``start relay`` ()
-        $ ``as`` Alice
+        $ given Alice
         $ ``connect to relay`` 
         $ ``send event`` (note "hello 1")
         $ ``send event`` (note "hello 2")
         $ ``send event`` (deleteNote ["hello 1"; "hello 2"])
-        $ ``as`` Bob
+        $ given Bob
         $ ``connect to relay`` 
-        $ ``subscribe to`` "all" """{"kinds":[1]}"""
+        $ ``subscribe to all events``
         |>  verify (fun test ->
-            let user = currentUser test 
-            should be Empty user.ReceivedEvents)
+            let user = currentUser test
+            should equal 1 user.ReceivedEvents.Count
+            should equal Kind.Delete user.ReceivedEvents[0].Kind)
     
-
+    
+type ``Relay Nip16``(output:ITestOutputHelper) =
+    
     [<Fact>]
-    let ``Can Replace events`` () =
+    let ``Can Replace replaceable events`` () =
         ``start relay`` ()
-        $ ``as`` Alice
+        $ given Alice
         $ ``connect to relay`` 
         $ ``send event`` (replaceableNote "replaceable")
         $ ``send event`` (replaceableNote "replacement")
-        $ ``as`` Bob
+        $ given Bob
         $ ``connect to relay`` 
         $ ``subscribe to all events``
         |>  verify (fun test ->
@@ -76,16 +78,29 @@ type ``Relay Nip16``(output:ITestOutputHelper) =
             should equal 1 user.ReceivedEvents.Count
             should equal "replacement" user.ReceivedEvents[0].Content)
 
+    [<Fact>]
+    let ``Can send ephemeral events`` () =
+        ``start relay`` ()
+        $ ``given`` Bob   $ ``connect to relay`` 
+        $ ``given`` Alice $ ``connect to relay`` 
+        $ ``subscribe to`` "Bob's events" (eventsFrom Bob)
+        $ ``given`` Bob   $ ``send event`` (ephemeralNote "hi there!")
+        $ ``given`` Alice $ ``wait for event`` "Bob's events" 
+        |>  verify (fun test ->
+            let user = currentUser test
+            should equal 1 user.ReceivedEvents.Count
+            should equal "hi there!" user.ReceivedEvents[0].Content)
+
 type ``Relay Nip33``(output:ITestOutputHelper) =
 
     [<Fact>]
     let ``Can Replace Dtag events`` () =
         ``start relay`` ()
-        $ ``as`` Alice
+        $ given Alice
         $ ``connect to relay`` 
         $ ``send event`` (parameterizedNote "replaceable" "dtag")
         $ ``send event`` (parameterizedNote "replacement" "dtag")
-        $ ``as`` Bob
+        $ given Bob
         $ ``connect to relay`` 
         $ ``subscribe to all events``
         |>  verify (fun test ->

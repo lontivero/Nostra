@@ -29,6 +29,9 @@ type TestContext = {
 }
 
 type TestStep = TestContext -> Async<TestContext>
+type FilterFactory = TestContext -> string
+type EventFactory = TestContext -> UnsignedEvent
+
 let ($) prev next = prev |> Async.bind next
 
 let currentUser ctx = ctx.Users[ctx.CurrentUser]
@@ -40,7 +43,7 @@ let ``start relay`` () = async {
     return testContext
 }
     
-let ``as`` user : TestStep =
+let ``given`` user : TestStep =
     fun ctx -> 
         let alreadyExists, knownUser = ctx.Users.TryGetValue(user)
         if not alreadyExists then
@@ -80,7 +83,7 @@ let ``wait for event`` subscriptionId : TestStep =
         return ctx            
     }
     
-let ``subscribe to`` subscriptionId filter: TestStep =
+let ``subscribe to`` subscriptionId (filterFactory: FilterFactory): TestStep =
     let rec receiveEvents subscriptionId receiver (events: Event ResizeArray) = async {
         let! response = receiver
         match response with
@@ -96,7 +99,7 @@ let ``subscribe to`` subscriptionId filter: TestStep =
         let user = currentUser ctx
         match user.Connection with
         | Some conn ->
-            do! conn.Sender $"""["REQ","{subscriptionId}",{filter}]"""
+            do! conn.Sender $"""["REQ","{subscriptionId}",{filterFactory ctx}]"""
             do! receiveEvents subscriptionId conn.Receiver user.ReceivedEvents
         | None _ ->
             failwith $"User '{ctx.CurrentUser}' is not connected."
@@ -104,8 +107,20 @@ let ``subscribe to`` subscriptionId filter: TestStep =
     }
     
 let ``subscribe to all events`` : TestStep =
-    ``subscribe to`` "all" "{}"
+    ``subscribe to`` "all" (fun _ -> "{}")
 
+let notes : FilterFactory =
+    fun ctx -> """{"kinds": [1]}"""    
+
+let events : FilterFactory =
+    fun ctx -> """{}"""    
+
+let eventsFrom who : FilterFactory =
+    fun ctx ->
+        let user = ctx.Users[who]
+        let pubkey = user.Secret |> Key.getPubKey |> fun x -> x.ToBytes() |> Utils.toHex
+        $"""{{"authors": ["{pubkey}"]}}"""    
+    
 let ``send event`` eventFactory : TestStep =
     fun ctx -> async {
         let user = currentUser ctx
@@ -133,26 +148,30 @@ let verify f ctx =
 let note content ctx =
     Event.createNoteEvent content
     
-let replaceableNote content ctx =
-    Event.createEvent Kind.ReplaceableStart [] content
+let replaceableNote content : EventFactory =
+    fun ctx -> Event.createEvent Kind.ReplaceableStart [] content
 
-let parameterizedNote content dtag ctx = 
-    Event.createEvent Kind.ParameterizableReplaceableStart [("d", [dtag])] content
-        
-let deleteNote evnts (ctx : TestContext) =
-    let allEvents =
-        ctx.Users
-        |> Seq.map (fun x -> x.Key, x.Value)
-        |> Seq.map (fun (_, u) -> u.SentEvents)
-        |> Seq.concat
-        |> Seq.toList
+let parameterizedNote content dtag : EventFactory =
+    fun ctx -> Event.createEvent Kind.ParameterizableReplaceableStart [("d", [dtag])] content
 
-    let ids =
-        allEvents
-        |> List.filter (fun e -> List.contains (e.Content) evnts)
-        |> List.map (fun e -> e.Id)
+let ephemeralNote content : EventFactory =
+    fun ctx -> Event.createEvent Kind.EphemeralStart [] content
         
-    Event.createDeleteEvent ids "nothing" 
+let deleteNote evnts : EventFactory =
+    fun ctx -> 
+        let allEvents =
+            ctx.Users
+            |> Seq.map (fun x -> x.Key, x.Value)
+            |> Seq.map (fun (_, u) -> u.SentEvents)
+            |> Seq.concat
+            |> Seq.toList
+
+        let ids =
+            allEvents
+            |> List.filter (fun e -> List.contains (e.Content) evnts)
+            |> List.map (fun e -> e.Id)
+            
+        Event.createDeleteEvent ids "nothing" 
     
 [<Literal>]
 let Alice = "Alice"
