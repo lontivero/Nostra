@@ -191,8 +191,9 @@ let deleteEvents connection (XOnlyPubKey author) eventIds =
     ]
 
 type Column = | Colum of string * string
+type Limit = int option
 type Query =
-    | Projection of string * Expression
+    | Projection of string * Expression * Limit 
 and MultiValue =
      | SimpleList of SqliteParameter list
      | SelectList of Query
@@ -246,7 +247,7 @@ let buildQueryForFilter (filter: Request.Filter) =
             |> Option.map (fun x -> x :: List.choose id [kindCondition "t"; sinceCondition "t"; untilCondition "t"])
             |> Option.map (fun conditions ->
                 let andExpr = List.reduce (fun acc expr -> And(acc, expr)) conditions 
-                let select = Projection ("SELECT t.event_id FROM tags t", And (EqualTo(Colum ("t", "name"), Sqlite.string tag), andExpr))
+                let select = Projection ("SELECT t.event_id FROM tags t", And (EqualTo(Colum ("t", "name"), Sqlite.string tag), andExpr), None)
                 In (Colum ("e", "id"), SelectList select))
 
         filter.Tags
@@ -255,7 +256,7 @@ let buildQueryForFilter (filter: Request.Filter) =
     ([notHidden; authCondition; kindCondition "e"; idCondition; sinceCondition "e"; untilCondition "e"] @ tagsCondition)
     |> List.choose id
     |> List.reduce (fun acc expr -> And(acc, expr))
-    |> fun es -> Projection("SELECT e.serialized_event FROM events e", es)
+    |> fun es -> Projection("SELECT e.serialized_event FROM events e", es, filter.Limit)
     
 let rec materializeExpression expression scope =
     let paramName (Colum(table, name)) = $"@s{scope}_{table}_{name}"
@@ -284,9 +285,10 @@ let rec materializeExpression expression scope =
 and
     materializeQuery (x: Query) (scope:int) =
     match x with
-    | Projection(select, where) ->
+    | Projection(select, where, limit) ->
         let whereStr, expr, scope = materializeExpression where scope
-        $"{select} WHERE {whereStr}", expr, scope
+        let limitStr = limit |> Option.map (fun l -> $" ORDER BY e.created_at DESC LIMIT {l}") |> Option.defaultValue ""
+        $"{select} WHERE {whereStr}{limitStr}", expr, scope
 
 let buildQueryForFilters (filters: Request.Filter list) =
     filters

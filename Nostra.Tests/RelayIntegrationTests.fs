@@ -41,6 +41,22 @@ type ``Relay Accept Queries``(output:ITestOutputHelper) =
             let bob = test.Users[Bob]
             let contents = bob.ReceivedEvents |> Seq.map (fun x -> x.Content)
             should contain "hello" contents)
+
+    [<Fact>]
+    let ``Can receive limited results subscription`` () =
+        ``start relay`` ()
+        $ given Alice 
+        $ ``connect to relay`` 
+        $ ``send event`` (note "hello 1")
+        $ ``send event`` (note "hello 2")
+        $ ``send event`` (note "hello 3")
+        $ ``subscribe to`` "sid" (latest 2)
+        |>  verify (fun test ->
+            let events = test.Users[Alice].ReceivedEvents            
+            should equal 2 events.Count
+            should equal "hello 2" events[0].Content
+            should equal "hello 3" events[1].Content
+            )
                     
 type ``Relay Nip09``(output:ITestOutputHelper) =
 

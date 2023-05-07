@@ -115,6 +115,9 @@ let notes : FilterFactory =
 let events : FilterFactory =
     fun ctx -> """{}"""    
 
+let latest n : FilterFactory =
+    fun ctx -> $"""{{"limit": {n}}}"""    
+
 let eventsFrom who : FilterFactory =
     fun ctx ->
         let user = ctx.Users[who]
