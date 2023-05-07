@@ -10,7 +10,9 @@
 
     <ItemGroup>
         <Compile Include="EchoServer.fs" />
-        <Compile Include="RelayTests.fs" />
+        <Compile Include="TestingFramework.fs" />
+        <Compile Include="RelaySimpleTests.fs" />
+        <Compile Include="RelayIntegrationTests.fs" />
         <Compile Include="ClientTests.fs" />
         <Compile Include="Bech32.fs" />
         <Compile Include="QueryBuildingTests.fs" />
