@@ -27,6 +27,12 @@ type ``Single Filters``(output:ITestOutputHelper) =
         should equal "SELECT e.serialized_event FROM events e WHERE e.deleted = @s0_e_deleted" query
 
     [<Fact>]
+    let ``Query Limit`` () =   
+        let filter = createFilter """{"limit": 10}"""
+        let query, parameters  = materializeSingleQuery (Database.buildQueryForFilter filter)       
+        should equal "SELECT e.serialized_event FROM events e WHERE e.deleted = @s0_e_deleted ORDER BY e.created_at DESC LIMIT 10" query
+    
+    [<Fact>]
     let ``Query Kinds`` () =   
         let filter = createFilter "{ \"kinds\" : [1,2] }"
         let query, parameters  = materializeSingleQuery (Database.buildQueryForFilter filter)       
@@ -142,9 +148,9 @@ type ``Subscriptions (multiple Filters)``(output:ITestOutputHelper) =
     [<Fact>]
     let ``Query Tags with Kinds`` () =   
         let filter1 = createFilter "{ \"kinds\" : [1,2], \"#e\": [\"888888\"] }"
-        let filter2 = createFilter "{ \"kinds\" : [3] }"
+        let filter2 = createFilter "{ \"kinds\" : [3], \"limit\": 123 }"
         let query, parameters = Database.buildQueryForFilters [filter1; filter2]
-        should equal "SELECT e.serialized_event FROM events e WHERE e.deleted = @s0_e_deleted AND e.kind IN (@s0_e_kind0,@s0_e_kind1) AND e.id IN (SELECT t.event_id FROM tags t WHERE t.name = @s1_t_name AND t.value IN (@s1_t_value0) AND t.kind IN (@s1_t_kind0,@s1_t_kind1)) UNION SELECT e.serialized_event FROM events e WHERE e.deleted = @s2_e_deleted AND e.kind IN (@s2_e_kind0)" query
+        should equal "SELECT e.serialized_event FROM events e WHERE e.deleted = @s0_e_deleted AND e.kind IN (@s0_e_kind0,@s0_e_kind1) AND e.id IN (SELECT t.event_id FROM tags t WHERE t.name = @s1_t_name AND t.value IN (@s1_t_value0) AND t.kind IN (@s1_t_kind0,@s1_t_kind1)) UNION SELECT e.serialized_event FROM events e WHERE e.deleted = @s2_e_deleted AND e.kind IN (@s2_e_kind0) ORDER BY e.created_at DESC LIMIT 123" query
         should equal [
            "@s0_e_deleted", false :> obj
            "@s0_e_kind0", 1
