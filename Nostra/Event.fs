@@ -49,6 +49,8 @@ module Event =
         | ReplaceableEnd = 20_000
         | EphemeralStart = 20_000
         | EphemeralEnd = 30_000
+        | ParameterizableReplaceableStart = 30_000
+        | ParameterizableReplaceableEnd = 40_000
 
     type Event =
         { Id: EventId
@@ -169,5 +171,12 @@ module Event =
         event.Kind < Kind.EphemeralEnd
         
     let isReplaceable (event: Event) =
-        event.Kind >= Kind.ReplaceableStart &&
-        event.Kind < Kind.ReplaceableEnd
+        match event.Kind with
+        | Kind.Metadata | Kind.Contacts -> true
+        | k when (k >= Kind.ReplaceableStart && k < Kind.ReplaceableEnd) -> true
+        | _ -> false
+        
+    let isParameterizableReplaceable (event: Event) =
+        event.Kind >= Kind.ParameterizableReplaceableStart &&
+        event.Kind < Kind.ParameterizableReplaceableEnd
+        

@@ -1,6 +1,7 @@
 namespace Nostra.Tests
 
 open System
+open System.IO
 open Nostra
 open Suave
 open Suave.Filters
@@ -62,7 +63,7 @@ module Relay =
     open Relay
     
     let startRelay ct =
-        let env = buildContext "Data Source=:memory:" Console.Out
+        let env = buildContext "Data Source=:memory:" TextWriter.Null //Console.Out
         let wsHandler = Monad.injectedWith env (webSocketHandler ())
         
         let port = 8000 + Random.Shared.Next(2000)

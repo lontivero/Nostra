@@ -1,6 +1,7 @@
 module Database
 
 open System
+open System.Net.NetworkInformation
 open FsToolkit.ErrorHandling
 open Fumble
 open Microsoft.Data.Sqlite
@@ -40,19 +41,18 @@ let createTables connection =
         CREATE TABLE IF NOT EXISTS tags (
             id INTEGER PRIMARY KEY,
             event_id INTEGER NOT NULL,
-            event_hash BLOB NOT NULL, 
             name TEXT NOT NULL,
             value TEXT NOT NULL,
             created_at INTEGER NOT NULL,
             kind INTEGER NOT NULL,
             FOREIGN KEY(event_id)
-                REFERENCES event(id) ON UPDATE CASCADE ON DELETE CASCADE
+                REFERENCES events(id) ON UPDATE CASCADE ON DELETE CASCADE
             );
 
         CREATE INDEX IF NOT EXISTS tag_value_index ON tags(value);
-        CREATE INDEX IF NOT EXISTS tag_composite_index ON tags(event_hash,name,value);
-        CREATE INDEX IF NOT EXISTS tag_name_eid_index ON tags(name,event_hash,value);
-        CREATE INDEX IF NOT EXISTS tag_covering_index ON tags(name,kind,value,created_at,event_hash);        
+        CREATE INDEX IF NOT EXISTS tag_composite_index ON tags(event_id,name,value);
+        CREATE INDEX IF NOT EXISTS tag_name_eid_index ON tags(name,event_id,value);
+        CREATE INDEX IF NOT EXISTS tag_covering_index ON tags(name,kind,value,created_at,event_id);        
         """
     |> Sqlite.executeCommand
     |> (fun result ->
@@ -60,7 +60,7 @@ let createTables connection =
         | Ok rows -> ()
         | Error exn -> failwith exn.Message)
 
-let areNewerReplacements connection author kind createdAt =
+let nip16Replacement connection author kind createdAt =
     connection
     |> Sqlite.query "
         SELECT e.id
@@ -73,46 +73,110 @@ let areNewerReplacements connection author kind createdAt =
     |> Sqlite.executeNonQueryAsync
     |> AsyncResult.map (fun x -> x > 0)
     
+let nip33Replacement connection author kind createdAt value =
+    connection
+    |> Sqlite.query "
+        SELECT e.id
+        FROM events e LEFT JOIN tags t ON e.id=t.event_id
+        WHERE e.author=@author AND e.kind=@kind AND t.name='d' AND t.value=@t_value AND e.created_at >= @created_at LIMIT 1;"
+    |> Sqlite.parameters [
+        "@author", Sqlite.bytes author
+        "@kind", Sqlite.int kind
+        "@t_value", Sqlite.string value
+        "@created_at", Sqlite.dateTime createdAt ]
+    |> Sqlite.executeNonQueryAsync
+    |> AsyncResult.map (fun x -> x > 0)
+
+let save connection eventId author preprocessedEvent = asyncResult { 
+    let tags =
+        preprocessedEvent.Event.Tags
+        |> List.collect (fun (k, vs) -> vs |> List.map (fun v -> k, v))
+
+    let! id =
+        connection
+        |> Sqlite.query
+            "INSERT OR IGNORE INTO events(event_hash, author, kind, created_at, serialized_event, deleted)
+                VALUES (@event_hash, @author, @kind, @created_at, @serialized_event, @deleted)"
+        |> Sqlite.parameters [
+            "@event_hash", Sqlite.bytes eventId
+            "@author", Sqlite.bytes author
+            "@kind", Sqlite.int (int preprocessedEvent.Event.Kind)
+            "@created_at", Sqlite.dateTime preprocessedEvent.Event.CreatedAt
+            "@serialized_event", Sqlite.string preprocessedEvent.Serialized
+            "@deleted", Sqlite.bool false ]
+        |> Sqlite.executeNonQuery
+
+    if tags.Length > 0 then
+        let! _ =
+            connection
+            |> Sqlite.executeTransactionAsync [
+                "INSERT OR IGNORE INTO tags(event_id, name, value, created_at, kind)
+                    VALUES (@event_id, @name, @value, @created_at, @kind)",
+                tags
+                |> List.map (fun (key, value) -> [
+                    "@event_id", Sqlite.int id
+                    "@name", Sqlite.string key
+                    "@value", Sqlite.string value
+                    "@created_at", Sqlite.dateTime preprocessedEvent.Event.CreatedAt
+                    "@kind", Sqlite.int (int preprocessedEvent.Event.Kind)])]
+        return ()
+    return ()
+}
+
+let deleteReplacement connection author kind =
+    connection
+    |> Sqlite.query "DELETE FROM events WHERE kind=@kind AND author=@author"
+    |> Sqlite.parameters [
+        "@author", Sqlite.bytes author
+        "@kind", Sqlite.int kind ]
+    |> Sqlite.executeNonQueryAsync
+    
+let handleReplacement connection author kind createdAt = 
+    nip16Replacement connection author kind createdAt
+    |> AsyncResult.bind(function
+       | true -> AsyncResult.ok ()
+       | false -> deleteReplacement connection author kind |> AsyncResult.ignore)
+
+let deleteParameterizedReplacement connection author kind dtag =
+    connection
+    |> Sqlite.query
+       "DELETE FROM events
+        WHERE kind=@kind
+            AND author=@author
+            AND id IN (
+                SELECT e.id FROM events e LEFT JOIN tags t ON e.id=t.event_id
+                WHERE e.kind=@kind
+                    AND e.author=@author
+                    AND t.name='d'
+                    AND t.value=@dtag
+                ORDER BY t.created_at DESC LIMIT 1)"
+    |> Sqlite.parameters [
+        "@author", Sqlite.bytes author
+        "@kind", Sqlite.int kind
+        "@dtag", Sqlite.string dtag]
+    |> Sqlite.executeNonQueryAsync   
+
+let handleParameterizedReplacement connection author kind createdAt dtag=
+    nip33Replacement connection author kind createdAt dtag
+    |> AsyncResult.bind(function
+       | true -> AsyncResult.ok ()
+       | false -> deleteParameterizedReplacement connection author kind dtag |> AsyncResult.ignore)
+        
 let saveEvent connection (preprocessedEvent: StoredEvent) = asyncResult {
     let event = preprocessedEvent.Event
     let (EventId eventId) = event.Id 
     let (XOnlyPubKey xOnlyPubkey) = event.PubKey
     let author = xOnlyPubkey.ToBytes()
     let kind = int event.Kind
+    let createdAt = event.CreatedAt
+    let dtag = preprocessedEvent.DTag |> Option.defaultValue ""
 
-        
-    let! alreadySaved = areNewerReplacements connection author kind event.CreatedAt 
+    if Event.isReplaceable event then
+        do! handleReplacement connection author kind createdAt
+    elif Event.isParameterizableReplaceable event then
+        do! handleParameterizedReplacement connection author kind createdAt dtag
 
-    if not alreadySaved then
-        let tags =
-            event.Tags
-            |> List.collect (fun (k, vs) -> vs |> List.map (fun v -> k, v))
-
-        let! _ =    
-            connection
-            |> Sqlite.executeTransactionAsync [
-                "INSERT OR IGNORE INTO events(event_hash, author, kind, created_at, serialized_event, deleted)
-                    VALUES (@event_hash, @author, @kind, @created_at, @serialized_event, @deleted)",
-                [ [ "@event_hash", Sqlite.bytes eventId
-                    "@author", Sqlite.bytes author
-                    "@kind", Sqlite.int (int event.Kind)
-                    "@created_at", Sqlite.dateTime event.CreatedAt
-                    "@serialized_event", Sqlite.string preprocessedEvent.Serialized
-                    "@deleted", Sqlite.bool false ] ]
-                
-                if tags.Length > 0 then
-                    "INSERT OR IGNORE INTO tags(event_hash, name, value, created_at, kind)
-                        VALUES (@event_hash, @name, @value, @created_at, @kind)",
-                    tags |> List.map (fun (key, value) -> [
-                        "@event_hash", Sqlite.bytes eventId
-                        "@name", Sqlite.string key
-                        "@value", Sqlite.string value
-                        "@created_at", Sqlite.dateTime event.CreatedAt
-                        "@kind", Sqlite.int (int event.Kind)]
-                )
-            ]
-        return ()
-    return ()
+    return! save connection eventId author preprocessedEvent |> AsyncResult.ignore
 }
 
 let deleteEvents connection (XOnlyPubKey author) eventIds =
@@ -237,5 +301,6 @@ let fetchEvents connection filters =
     connection
     |> Sqlite.query query
     |> Sqlite.parameters parameters
-    |> Sqlite.executeAsync (fun read -> read.string "serialized_event")
+    |> Sqlite.executeAsync (
+        fun read -> read.string "serialized_event")
    

@@ -38,14 +38,14 @@ module Monad =
 
 module ClientContext =
     type Reader<'a> = unit -> 'a
-    type AsyncReader<'a> = unit -> Async<'a>
+    type AsyncReader<'a> = byte[] -> Async<'a>
     type Writer<'a> = 'a -> unit
     type AsyncWriter<'a> = 'a -> Async<unit>
 
     type WebSocketResult = { Count: int; EndOfMessage: bool }
 
     type IOWebSocket =
-        { read: byte[] -> Async<WebSocketResult>
+        { read: AsyncReader<WebSocketResult>
           write: AsyncWriter<byte[]> }
 
     type IOLogger =

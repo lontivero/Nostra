@@ -16,6 +16,7 @@ module Relay =
         Tags: Tag list
         RefEvents: string list
         RefPubKeys: string list
+        DTag: string option
     }
     
     module Request =
