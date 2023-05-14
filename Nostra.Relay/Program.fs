@@ -182,10 +182,5 @@ let logger =
 let main argv =
     let cts = new CancellationTokenSource()
     let conf = { defaultConfig with cancellationToken = cts.Token; logger = logger }
-    let listening, server = startWebServerAsync conf app
-
-    Async.Start(server, cts.Token)
-    Console.ReadKey true |> ignore  
-    cts.Cancel()
-
+    startWebServer conf app
     0 // return an integer exit code    
