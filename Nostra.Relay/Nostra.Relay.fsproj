@@ -11,6 +11,7 @@
         <Compile Include="ClientRegistry.fs" />
         <Compile Include="MessageProcessing.fs" />
         <Compile Include="Program.fs" />
+        <Content Include="README.md" />
     </ItemGroup>
 
     <ItemGroup>
