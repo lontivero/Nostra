@@ -13,18 +13,12 @@ open Relay.Request
 open Relay.Response
 open EventStore
 open ClientRegistry
+open MessageProcessing
 
 open Suave
 open Suave.Sockets
 open Suave.Sockets.Control
-open Suave.WebSocket
-
-type Context = {
-    eventStore : EventStore
-    clientRegistry : ClientRegistry
-    logger: IOLogger
-}
-           
+open Suave.WebSocket           
 
 let webSocketHandler () =
     let handle (env : Context) (webSocket : WebSocket) (context: HttpContext) =
@@ -54,7 +48,7 @@ let webSocketHandler () =
             let port = context.clientPort true []
             ClientId(ip , port)
 
-        let processRequest req = MessageProcessing.processRequest env.eventStore subscriptions env.clientRegistry req
+        let processRequest req = processRequest env subscriptions req
             
         let rec loop () = socket {
             let! msg = webSocket.read()
@@ -62,23 +56,22 @@ let webSocketHandler () =
             | Text, data, true ->
                 let requestText = UTF8.toString data
                 env.logger.logDebug requestText
-                asyncResult {
-                    let! relayMessages = processRequest requestText
-                    match relayMessages with
-                    | [ ] -> return ()
-                    | (final::messages) ->
-                        messages
-                        |> List.rev
-                        |> List.iter send 
-                        send final 
-                        return ()
-                }
+                processRequest requestText
+                |> AsyncResult.map (function
+                | [ ] -> ()
+                | (final::messages) ->
+                    messages
+                    |> List.rev
+                    |> List.iter send 
+                    send final 
+                    ())
                 |> Async.RunSynchronously
-                |> function
-                    | Ok () -> ()
-                    | Error e ->
+                |> Result.defaultWith (function
+                    | BusinessError e ->
+                        send e
+                    | UnexpectedError e ->
                         env.logger.logError (e.ToString())
-                        send (RMNotice "Invalid message received")  
+                        send (RMNotice "unexpected error"))  
 
                 return! loop()
             | Close, _, _ ->

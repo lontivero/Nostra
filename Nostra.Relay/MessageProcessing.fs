@@ -6,6 +6,7 @@ open EventStore
 open FsToolkit.ErrorHandling
 open System
 open Nostra
+open Nostra.ClientContext
 open Nostra.Event
 open Nostra.Relay
 open Relay.Request
@@ -14,6 +15,16 @@ open YoLo
 
 type SubscriptionStore = Dictionary<SubscriptionId, Filter list>
 
+type Context = {
+    eventStore : EventStore
+    clientRegistry : ClientRegistry
+    logger: IOLogger
+}
+
+type EventProcessingError =
+    | UnexpectedError of Exception
+    | BusinessError of RelayMessage
+    
 let preprocessEvent (event : Event) serializedEvent =
     let (EventId eventId) = event.Id 
     let (XOnlyPubKey xOnlyPubkey) = event.PubKey
@@ -40,25 +51,47 @@ let preprocessEvent (event : Event) serializedEvent =
             |> List.tryHead
     }
 
-let processRequest (eventStore : EventStore) (subscriptions : SubscriptionStore) (clientRegistry : ClientRegistry) requestText = asyncResult {
+let ackError eventId error =
+    BusinessError (RMAck (eventId, false, error))
+
+let noticeError error =
+    BusinessError (RMNotice error)
+    
+let canPersistEvent (event : Event) = result {
+    do! Result.requireTrue (ackError event.Id "invalid: the signature is incorrect") (verify event)
+    }
+    
+let verifyCanSubscribe subscriptionId filters (subscriptionStore : SubscriptionStore) = result {
+    let filterCount = Seq.length filters
+    do! Result.requireTrue (noticeError "Too many filters") (filterCount < 5)
+    let subscriptionCount = Seq.length subscriptionStore
+    do! Result.requireTrue (noticeError "Too many subscription") (subscriptionCount < 10)
+    let exists, existingFilters = subscriptionStore.TryGetValue(subscriptionId)
+    do! Result.requireFalse (noticeError "Duplicated subscription") (exists && existingFilters = filters)
+    }
+    
+let processRequest (env : Context) (subscriptionStore : SubscriptionStore) requestText = asyncResult {
     let! request =
         deserialize requestText
-        |> Result.mapError (fun e -> Exception e)
+        |> Result.mapError (fun _ -> noticeError "invalid: it was not possible to deserialize")
 
     match request with
     | CMEvent event ->
-        if verify event then
-            let serializedEvent = requestText[(requestText.IndexOf "{")..(requestText.LastIndexOf "}")]
-            let preprocessedEvent = preprocessEvent event serializedEvent
-            do! storeEvent eventStore.saveEvent eventStore.deleteEvents preprocessedEvent            
-            clientRegistry.notifyEvent preprocessedEvent
-            return! Ok [ RMAck (event.Id, true, "added") ]
-        else
-            return! Ok [ RMAck (event.Id, false, "invalid: the signature is incorrect") ]
+        do! (canPersistEvent event)
+        let serializedEvent = requestText[(requestText.IndexOf "{")..(requestText.LastIndexOf "}")]
+
+        let preprocessedEvent = preprocessEvent event serializedEvent
+        do! storeEvent env.eventStore.saveEvent env.eventStore.deleteEvents preprocessedEvent            
+        env.clientRegistry.notifyEvent preprocessedEvent
+        return! Ok [ RMAck (event.Id, true, "added") ]
             
     | CMSubscribe(subscriptionId, filters) ->
-        subscriptions.Add( subscriptionId, filters )
-        let! matchingEvents = filterEvents eventStore.fetchEvents filters
+        do! (verifyCanSubscribe subscriptionId filters subscriptionStore)
+        subscriptionStore.Add( subscriptionId, filters )
+        let! matchingEvents =
+            filterEvents env.eventStore.fetchEvents filters
+            |> AsyncResult.mapError (fun ec -> noticeError "Something was wrong.")
+                    
         let relayMessages =
             matchingEvents
             |> List.map (fun event ->RMEvent(subscriptionId, event))
@@ -66,7 +99,7 @@ let processRequest (eventStore : EventStore) (subscriptions : SubscriptionStore)
         return (RMEOSE subscriptionId) :: relayMessages  
         
     | CMUnsubscribe subscriptionId ->
-        subscriptions.Remove subscriptionId |> ignore
+        subscriptionStore.Remove subscriptionId |> ignore
         return! Ok []
     }
 
