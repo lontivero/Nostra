@@ -46,8 +46,8 @@ module Relay =
                     let tagsDecoder : Decoder<Tag list> =
                         fun path value ->
                             match Decode.keys path value with
-                            | Ok objecKeys ->
-                                let tagKeys = objecKeys |> Seq.filter (fun t -> t.Length > 1 && t.StartsWith "#") 
+                            | Ok objectKeys ->
+                                let tagKeys = objectKeys |> Seq.filter (fun t -> t.Length > 1 && t.StartsWith "#") 
                                 (Ok [], tagKeys ) ||> Seq.fold (fun acc prop ->
                                     match acc with
                                     | Error _ -> acc

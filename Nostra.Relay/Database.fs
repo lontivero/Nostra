@@ -1,7 +1,6 @@
 module Database
 
 open System
-open System.Net.NetworkInformation
 open FsToolkit.ErrorHandling
 open Fumble
 open Microsoft.Data.Sqlite
