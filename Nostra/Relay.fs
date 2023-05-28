@@ -78,9 +78,7 @@ module Relay =
                     | None, Some until -> eventInfo.Event.CreatedAt <= until
                     | Some since, Some until -> eventInfo.Event.CreatedAt >= since && eventInfo.Event.CreatedAt <= until
                 
-                let flatTags tags =
-                    tags
-                    |> List.collect  (fun (tag, values) -> List.map (fun value -> tag, value) values)
+                let flatTags tags = List.ungroup tags
                     
                 isInTimeWindow &&
                 filter.Ids     |> matchList [eventInfo.Id] &&

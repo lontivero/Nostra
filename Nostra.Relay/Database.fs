@@ -88,9 +88,7 @@ let nip33Replacement connection author kind createdAt value =
     |> AsyncResult.map (fun x -> x > 0)
 
 let save connection eventId author preprocessedEvent = asyncResult { 
-    let tags =
-        preprocessedEvent.Event.Tags
-        |> List.collect (fun (k, vs) -> vs |> List.map (fun v -> k, v))
+    let tags = List.ungroup preprocessedEvent.Event.Tags
 
     let! id =
         connection

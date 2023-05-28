@@ -28,6 +28,11 @@ module Option =
         | true, value -> Some value
         | _ -> None
 
+[<RequireQualifiedAccess>]
+module List =
+    let ungroup lst =
+        List.collect (fun (k, vs) -> List.map (fun v -> k, v) vs) lst 
+        
 module Monad =
     type Reader<'environment, 'a> = Reader of ('environment -> 'a)
 
