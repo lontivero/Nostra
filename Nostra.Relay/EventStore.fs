@@ -1,7 +1,5 @@
 module EventStore
 
-open System
-open FsToolkit.ErrorHandling
 open Nostra
 open Nostra.Event
 open Nostra.Relay

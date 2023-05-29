@@ -19,9 +19,13 @@ let preprocessEvent (event : Event) serializedEvent =
     let (XOnlyPubKey xOnlyPubkey) = event.PubKey
     let pubkey = xOnlyPubkey.ToBytes()
 
-    let tags =
-        event.Tags
-        |> List.collect (fun (k, vs) -> vs |> List.map (fun v -> k, v))    
+    let tagsByKey key tags =
+        tags
+        |> List.filter (fun (k,_) -> k = key)
+        |> List.map snd
+    
+    let tags = List.ungroup event.Tags
+     
     {
         Event = event
         Id = Utils.toHex eventId
@@ -29,18 +33,10 @@ let preprocessEvent (event : Event) serializedEvent =
         Serialized = serializedEvent
         Seen = DateTime.UtcNow
         Tags = event.Tags
-        RefEvents =
-            tags
-            |> List.filter (fun (k,v) -> k = "e")
-            |> List.map snd
-        RefPubKeys =
-            tags
-            |> List.filter (fun (k,v) -> k = "p")
-            |> List.map snd
-        DTag =
-            tags
-            |> List.filter (fun (k,v) -> k = "d")
-            |> List.map snd
+        RefEvents = tagsByKey "e" tags
+        RefPubKeys = tagsByKey "p" tags
+        DTag = 
+            tagsByKey "d" tags
             |> List.tryHead
     }
 

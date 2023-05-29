@@ -46,8 +46,8 @@ module Relay =
                     let tagsDecoder : Decoder<Tag list> =
                         fun path value ->
                             match Decode.keys path value with
-                            | Ok objecKeys ->
-                                let tagKeys = objecKeys |> Seq.filter (fun t -> t.Length > 1 && t.StartsWith "#") 
+                            | Ok objectKeys ->
+                                let tagKeys = objectKeys |> Seq.filter (fun t -> t.Length > 1 && t.StartsWith "#") 
                                 (Ok [], tagKeys ) ||> Seq.fold (fun acc prop ->
                                     match acc with
                                     | Error _ -> acc
@@ -78,9 +78,7 @@ module Relay =
                     | None, Some until -> eventInfo.Event.CreatedAt <= until
                     | Some since, Some until -> eventInfo.Event.CreatedAt >= since && eventInfo.Event.CreatedAt <= until
                 
-                let flatTags tags =
-                    tags
-                    |> List.collect  (fun (tag, values) -> List.map (fun value -> tag, value) values)
+                let flatTags tags = List.ungroup tags
                     
                 isInTimeWindow &&
                 filter.Ids     |> matchList [eventInfo.Id] &&
