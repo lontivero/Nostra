@@ -67,7 +67,7 @@ type ``Relay Accept Events``(output:ITestOutputHelper, fixture:RelayFixture) =
 
         let! msg = receive
         match msg with
-        | Ok (RMNotice message) -> should equal "Invalid message received" message  
+        | Ok (RMNotice message) -> should equal "invalid: it was not possible to deserialize" message  
         | Ok _ -> failwith "error" 
         | Error error -> failwith error
     }
@@ -80,7 +80,7 @@ type ``Relay Accept Events``(output:ITestOutputHelper, fixture:RelayFixture) =
 
         let! msg = receive
         match msg with
-        | Ok (RMNotice message) -> should equal "Invalid message received" message  
+        | Ok (RMNotice message) -> should equal "invalid: it was not possible to deserialize" message  
         | Ok _ -> failwith "error" 
         | Error error -> failwith error
     }
