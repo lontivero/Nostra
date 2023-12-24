@@ -10,12 +10,14 @@
         <Compile Include="Utils.fs" />
         <Compile Include="Types.fs" />
         <Compile Include="Event.fs" />
+        <Compile Include="EncryptedPayload.fs" />
         <Compile Include="Bech32.fs" />
         <Compile Include="Client.fs" />
         <Compile Include="Relay.fs" />
     </ItemGroup>
 
     <ItemGroup>
+      <PackageReference Include="LibChaCha20" Version="1.0.1" />
       <PackageReference Include="NBitcoin.Secp256k1" Version="3.1.0" />
       <PackageReference Include="Thoth.Json.Net" Version="10.0.0" />
     </ItemGroup>
