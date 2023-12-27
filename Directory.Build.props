@@ -1,0 +1,7 @@
+<Project>
+ <PropertyGroup>
+     <TargetFramework>net8.0</TargetFramework>
+     <GenerateDocumentationFile>false</GenerateDocumentationFile>
+     <Deterministic>true</Deterministic>
+ </PropertyGroup>
+</Project>

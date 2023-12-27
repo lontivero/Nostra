@@ -1,8 +1,6 @@
 ﻿<Project Sdk="Microsoft.NET.Sdk">
 
     <PropertyGroup>
-        <TargetFramework>net7.0</TargetFramework>
-        <GenerateDocumentationFile>false</GenerateDocumentationFile>
         <RootNamespace>Nostra.Core</RootNamespace>
     </PropertyGroup>
 
@@ -17,16 +15,17 @@
     </ItemGroup>
 
     <ItemGroup>
-      <PackageReference Include="LibChaCha20" Version="1.0.1" />
-      <PackageReference Include="NBitcoin.Secp256k1" Version="3.1.0" />
-      <PackageReference Include="Thoth.Json.Net" Version="10.0.0" />
+      <PackageReference Include="FSharp.Core" />
+      <PackageReference Include="LibChaCha20" />
+      <PackageReference Include="NBitcoin.Secp256k1 "/>
+      <PackageReference Include="Thoth.Json.Net" />
     </ItemGroup>
 
     <ItemGroup>
         <None Include="../LICENSE" Pack="true" PackagePath="" />
         <None Include="README.md" Pack="true" PackagePath="" />
     </ItemGroup>
-    
+
     <PropertyGroup>
         <PackageId>Nostra</PackageId>
         <Version>0.0.1</Version>
@@ -40,12 +39,12 @@
         <copyright>Please see LICENSE for more details.</copyright>
         <tags>NOSTR .NET</tags>
         <releaseNotes>
-            Very first version 
+            Very first version
         </releaseNotes>
         <PackageReadmeFile>README.md</PackageReadmeFile>
         <RepositoryType>git</RepositoryType>
         <RepositoryUrl>https://github.com/lontivero/nostra</RepositoryUrl>
         <PackageLicenseFile>LICENSE</PackageLicenseFile>
     </PropertyGroup>
-    
+
 </Project>
