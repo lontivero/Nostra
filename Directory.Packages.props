@@ -1,0 +1,20 @@
+<Project>
+  <PropertyGroup>
+    <ManagePackageVersionsCentrally>true</ManagePackageVersionsCentrally>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageVersion Include="FSharp.Core" Version="8.0.100" />
+    <PackageVersion Include="LibChaCha20" Version="1.0.1" />
+    <PackageVersion Include="NBitcoin.Secp256k1" Version="3.1.0" />
+    <PackageVersion Include="Thoth.Json.Net" Version="11.0.0" />
+    <PackageVersion Include="FsToolkit.ErrorHandling" Version="4.3.0" />
+    <PackageVersion Include="Fumble" Version="1.0.1" />
+    <PackageVersion Include="Suave" Version="2.6.2" />
+    <!-- Unit testing -->
+    <PackageVersion Include="FsUnit.xUnit" Version="5.2.0" />
+    <PackageVersion Include="Microsoft.NET.Test.Sdk" Version="17.5.0" />
+    <PackageVersion Include="coverlet.collector" Version="3.2.0" />
+    <PackageVersion Include="xunit" Version="2.4.2" />
+    <PackageVersion Include="xunit.runner.visualstudio" Version="2.4.5" />
+  </ItemGroup>
+</Project>
