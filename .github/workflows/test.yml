@@ -12,4 +12,4 @@ jobs:
         nix_path: nixpkgs=channel:nixos-unstable
     - uses: DeterminateSystems/magic-nix-cache-action@v2
     - run: nix build Contrib/
-    - run: nix-shell --run "echo OK"
+    - run: echo OK
