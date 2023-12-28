@@ -29,7 +29,7 @@ module Decode =
     let unixDateTime: Decoder<DateTime> =
         Decode.uint32
         |> Decode.andThen (fun n ->
-            Decode.succeed (int64 n * TimeSpan.TicksPerSecond + DateTime.UnixEpoch.Ticks |> DateTime))
+            Decode.succeed (fromUnixTime (int n)))
 
     let eventId: Decoder<EventId> =
         Decode.string

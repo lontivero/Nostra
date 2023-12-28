@@ -159,7 +159,10 @@ let parameterizedNote content dtag : EventFactory =
 
 let ephemeralNote content : EventFactory =
     fun ctx -> Event.createEvent Kind.EphemeralStart [] content
-        
+
+let expirableNote content expirationDate : EventFactory =
+    fun ctx -> Event.createEvent Kind.Text [("expiration", [string expirationDate])] content
+
 let deleteNote evnts : EventFactory =
     fun ctx -> 
         let allEvents =

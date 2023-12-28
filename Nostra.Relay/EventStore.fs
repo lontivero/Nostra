@@ -6,7 +6,7 @@ open Nostra.Relay
 
 type EventSaver = StoredEvent -> Async<Result<unit, exn>>
 type EventsDeleter = XOnlyPubKey -> string list -> Async<Result<int list, exn>>
-type EventsFetcher = Request.Filter list -> Async<Result<SerializedEvent list, exn>>
+type EventsFetcher = Request.Filter list -> System.DateTime -> Async<Result<SerializedEvent list, exn>>
 
 type EventStore = {
     saveEvent : EventSaver

@@ -4,6 +4,7 @@ open System
 open FsToolkit.ErrorHandling
 open Fumble
 open Microsoft.Data.Sqlite
+open Microsoft.FSharp.Collections
 open Nostra
 open Nostra.Relay
 
@@ -24,13 +25,15 @@ let createTables connection =
             kind INTEGER NOT NULL,
             created_at INTEGER NOT NULL,
             serialized_event TEXT NOT NULL,
-            deleted BOOLEAN NOT NULL
+            deleted BOOLEAN NOT NULL,
+            expires_at INTEGER NOT NULL
             );
 
         CREATE UNIQUE INDEX IF NOT EXISTS event_hash_index ON events(event_hash);
         CREATE INDEX IF NOT EXISTS author_index ON events(author);
         CREATE INDEX IF NOT EXISTS kind_index ON events(kind);
         CREATE INDEX IF NOT EXISTS created_at_index ON events(created_at);
+        CREATE INDEX IF NOT EXISTS expires_at_index ON events(expires_at);
         CREATE INDEX IF NOT EXISTS event_composite_index ON events(kind,created_at);
         CREATE INDEX IF NOT EXISTS kind_author_index ON events(kind,author);
         CREATE INDEX IF NOT EXISTS kind_created_at_index ON events(kind,created_at);
@@ -92,13 +95,14 @@ let save connection eventId author preprocessedEvent = asyncResult {
     let! id =
         connection
         |> Sql.query
-            "INSERT OR IGNORE INTO events(event_hash, author, kind, created_at, serialized_event, deleted)
-                VALUES (@event_hash, @author, @kind, @created_at, @serialized_event, @deleted)"
+            "INSERT OR IGNORE INTO events(event_hash, author, kind, created_at, expires_at, serialized_event, deleted)
+                VALUES (@event_hash, @author, @kind, @created_at, @expires_at, @serialized_event, @deleted)"
         |> Sql.parameters [
             "@event_hash", Sql.bytes eventId
             "@author", Sql.bytes author
             "@kind", Sql.int (int preprocessedEvent.Event.Kind)
             "@created_at", Sql.dateTime preprocessedEvent.Event.CreatedAt
+            "@expires_at", Sql.dateTime (preprocessedEvent.Event |> Event.expirationUnixDateTime |> Option.map Utils.fromUnixTime |> Option.defaultValue DateTime.MaxValue)
             "@serialized_event", Sql.string preprocessedEvent.Serialized
             "@deleted", Sql.bool false ]
         |> Sql.executeNonQuery
@@ -201,7 +205,7 @@ and Expression =
     | In of Column * MultiValue
     | And of Expression * Expression
 
-let buildQueryForFilter (filter: Request.Filter) =
+let buildQueryForFilter (now : DateTime) (filter: Request.Filter) =
 
     let inConditions field sqltype values =
         match values with
@@ -211,6 +215,7 @@ let buildQueryForFilter (filter: Request.Filter) =
             Some (In (field, SimpleList fieldValues))
 
     let notHidden = EqualTo (Colum ("e", "deleted"), Sql.bool false) |> Some
+    let notExpired = GreaterThan (Colum ("e", "expires_at"), Sql.dateTime now) |> Some
 
     let authCondition =
         filter.Authors
@@ -250,7 +255,7 @@ let buildQueryForFilter (filter: Request.Filter) =
         filter.Tags
         |> List.map (fun (tag, values) -> tagCondition tag[1..2] values)
 
-    ([notHidden; authCondition; kindCondition "e"; idCondition; sinceCondition "e"; untilCondition "e"] @ tagsCondition)
+    ([notHidden; notExpired; authCondition; kindCondition "e"; idCondition; sinceCondition "e"; untilCondition "e"] @ tagsCondition)
     |> List.choose id
     |> List.reduce (fun acc expr -> And(acc, expr))
     |> fun es -> Projection("SELECT e.serialized_event FROM events e", es, filter.Limit)
@@ -284,22 +289,21 @@ and
     match x with
     | Projection(select, where, limit) ->
         let whereStr, expr, scope = materializeExpression where scope
-        let limitStr = limit |> Option.map (fun l -> $" ORDER BY e.created_at DESC LIMIT {l}") |> Option.defaultValue ""
+        let limitStr = limit |> Option.map (fun l -> $" ORDER BY e.created_at, e.id DESC LIMIT {l}") |> Option.defaultValue ""
         $"{select} WHERE {whereStr}{limitStr}", expr, scope
 
-let buildQueryForFilters (filters: Request.Filter list) =
+let buildQueryForFilters (filters: Request.Filter list) (now : DateTime) =
     filters
-    |> List.map buildQueryForFilter
+    |> List.map (buildQueryForFilter now)
     |> List.fold (fun (i, qs) query -> let s, p, j = materializeQuery query i in (j + 1, (s, p) :: qs) )  (0, [])
     |> snd
     |> List.rev
     |> List.reduce (fun (select1, parms1) (select2, parms2) -> ($"{select1} UNION {select2}", parms1 @ parms2))
 
-let fetchEvents connection filters =
-    let query, parameters = buildQueryForFilters filters
+let fetchEvents connection filters now =
+    let query, parameters = buildQueryForFilters filters now
     connection
     |> Sql.query query
     |> Sql.parameters parameters
     |> Sql.executeAsync (
         fun read -> read.string "serialized_event")
-   

@@ -123,3 +123,32 @@ type ``Relay Nip33``(output:ITestOutputHelper) =
             let user = currentUser test
             should equal 1 user.ReceivedEvents.Count
             should equal "replacement" user.ReceivedEvents[0].Content)
+
+type ``Relay Nip40``(output:ITestOutputHelper) =
+
+    [<Fact>]
+    let ``Can return non-expired events`` () =
+        ``start relay`` ()
+        $ given Alice
+        $ ``connect to relay``
+        $ ``send event`` (expirableNote "some text" (Utils.toUnixTime (System.DateTime.Now.AddSeconds 2)))
+        $ given Bob
+        $ ``connect to relay``
+        $ ``subscribe to all events``
+        |>  verify (fun test ->
+            let user = currentUser test
+            should equal 1 user.ReceivedEvents.Count
+            should equal "some text" user.ReceivedEvents[0].Content)
+
+    [<Fact>]
+    let ``Can not return expired events`` () =
+        ``start relay`` ()
+        $ given Alice
+        $ ``connect to relay``
+        $ ``send event`` (expirableNote "some text" (Utils.toUnixTime (System.DateTime.Now.AddSeconds -2)))
+        $ given Bob
+        $ ``connect to relay``
+        $ ``subscribe to all events``
+        |>  verify (fun test ->
+            let user = currentUser test
+            should equal 0 user.ReceivedEvents.Count)

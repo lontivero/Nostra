@@ -24,9 +24,9 @@ type Context = {
 type EventProcessingError =
     | UnexpectedError of Exception
     | BusinessError of RelayMessage
-    
+
 let preprocessEvent (event : Event) serializedEvent =
-    let (EventId eventId) = event.Id 
+    let (EventId eventId) = event.Id
     let (XOnlyPubKey xOnlyPubkey) = event.PubKey
     let pubkey = xOnlyPubkey.ToBytes()
 
@@ -34,9 +34,9 @@ let preprocessEvent (event : Event) serializedEvent =
         tags
         |> List.filter (fun (k,_) -> k = key)
         |> List.map snd
-    
+
     let tags = List.ungroup event.Tags
-     
+
     {
         Event = event
         Id = Utils.toHex eventId
@@ -46,7 +46,7 @@ let preprocessEvent (event : Event) serializedEvent =
         Tags = event.Tags
         RefEvents = tagsByKey "e" tags
         RefPubKeys = tagsByKey "p" tags
-        DTag = 
+        DTag =
             tagsByKey "d" tags
             |> List.tryHead
     }
@@ -56,11 +56,11 @@ let ackError eventId error =
 
 let noticeError error =
     BusinessError (RMNotice error)
-    
+
 let canPersistEvent (event : Event) = result {
     do! Result.requireTrue (ackError event.Id "invalid: the signature is incorrect") (verify event)
     }
-    
+
 let verifyCanSubscribe subscriptionId filters (subscriptionStore : SubscriptionStore) = result {
     let filterCount = Seq.length filters
     do! Result.requireTrue (noticeError "Too many filters") (filterCount < 5)
@@ -69,7 +69,7 @@ let verifyCanSubscribe subscriptionId filters (subscriptionStore : SubscriptionS
     let exists, existingFilters = subscriptionStore.TryGetValue(subscriptionId)
     do! Result.requireFalse (noticeError "Duplicated subscription") (exists && existingFilters = filters)
     }
-    
+
 let processRequest (env : Context) (subscriptionStore : SubscriptionStore) requestText = asyncResult {
     let! request =
         deserialize requestText
@@ -81,23 +81,23 @@ let processRequest (env : Context) (subscriptionStore : SubscriptionStore) reque
         let serializedEvent = requestText[(requestText.IndexOf "{")..(requestText.LastIndexOf "}")]
 
         let preprocessedEvent = preprocessEvent event serializedEvent
-        do! storeEvent env.eventStore.saveEvent env.eventStore.deleteEvents preprocessedEvent            
+        do! storeEvent env.eventStore.saveEvent env.eventStore.deleteEvents preprocessedEvent
         env.clientRegistry.notifyEvent preprocessedEvent
         return! Ok [ RMAck (event.Id, true, "added") ]
-            
+
     | CMSubscribe(subscriptionId, filters) ->
         do! (verifyCanSubscribe subscriptionId filters subscriptionStore)
         subscriptionStore.Add( subscriptionId, filters )
         let! matchingEvents =
-            filterEvents env.eventStore.fetchEvents filters
+            filterEvents env.eventStore.fetchEvents filters DateTime.Now
             |> AsyncResult.mapError (fun ec -> noticeError "Something was wrong.")
-                    
+
         let relayMessages =
             matchingEvents
             |> List.map (fun event ->RMEvent(subscriptionId, event))
 
-        return (RMEOSE subscriptionId) :: relayMessages  
-        
+        return (RMEOSE subscriptionId) :: relayMessages
+
     | CMUnsubscribe subscriptionId ->
         subscriptionStore.Remove subscriptionId |> ignore
         return! Ok []
