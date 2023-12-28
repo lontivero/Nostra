@@ -181,7 +181,7 @@ module Relay =
                 "description", Encode.string "Relay without persistence"
                 "pubkey", Encode.string ""
                 "contact", Encode.string "lucasontivero@gmail.com"
-                "supported_nips", Encode.list (List.map Encode.int [1; 2; 4; 9; 11; 12; 16; 20; 33 ]) 
+                "supported_nips", Encode.list (List.map Encode.int [1; 2; 4; 9; 11; 12; 16; 20; 33; 40 ])
                 "software", Encode.string "https://github.com/lontivero/Nostra/"
                 "version", Encode.string "0.0.1"
             ]

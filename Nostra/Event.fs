@@ -223,3 +223,17 @@ module Event =
     let isParameterizableReplaceable (event: Event) =
         event.Kind >= Kind.ParameterizableReplaceableStart &&
         event.Kind < Kind.ParameterizableReplaceableEnd
+
+    let expirationUnixDateTime (event: Event) =
+        event.Tags
+        |> List.ungroup
+        |> List.tryFind (fun (tagName, value) -> tagName = "expiration")
+        |> Option.bind (fun (_, expirationTagValue) -> expirationTagValue |> Int32.TryParse |> Option.ofTuple)
+
+    let isExpired (event: Event) (datetime: DateTime) =
+        event
+        |> expirationUnixDateTime
+        |> Option.map (fun expirationDate ->
+            let unixDateTime = toUnixTime datetime
+            expirationDate <= int unixDateTime)
+        |> Option.defaultValue false

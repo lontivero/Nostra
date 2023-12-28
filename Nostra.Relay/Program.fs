@@ -142,7 +142,7 @@ let app : WebPart =
                 match filterResult with
                 | Ok filter ->
                     asyncResult {
-                        let! events = filterEvents (env.eventStore.fetchEvents) [filter]
+                        let! events = filterEvents (env.eventStore.fetchEvents) [filter] DateTime.Now
                         return! events
                                 |> List.map Encode.string
                                 |> Encode.list
