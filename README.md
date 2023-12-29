@@ -1,6 +1,6 @@
 # Nostra
 
-[![.NET](https://github.com/lontivero/Nostra/actions/workflows/dotnet.yml/badge.svg)](https://github.com/lontivero/Nostra/actions/workflows/dotnet.yml)
+[![.NET](https://github.com/lontivero/Nostra/actions/workflows/Build-Flake.yml/badge.svg)](https://github.com/lontivero/Nostra/actions/workflows/Build-Flake.yml)
 
 Nostra is a set of tools for building applications using the [Nostr Protocol](https://github.com/nostr-protocol/nostr). It consists on:
 
