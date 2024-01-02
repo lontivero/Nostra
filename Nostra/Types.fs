@@ -17,7 +17,35 @@ type SchnorrSignature = SchnorrSignature of SecpSchnorrSignature
 type Tag = string * (string list)
 type SerializedEvent = string
 
+module XOnlyPubKey =
+    let parse = function
+        | Base64 64 byteArray ->
+            match (ECXOnlyPubKey.TryCreate byteArray) with
+            | true, pubkey -> Ok (XOnlyPubKey pubkey)
+            | _ -> Error "The byte array is not a valid xonly publick key."
+        | invalid ->
+            Error $"XOnlyPubKey is invalid. The byte array is not 32 length but %i{invalid.Length / 2}"
+
+module SchnorrSignature =
+    let parse = function
+        | Base64 128 byteArray ->
+            match (SecpSchnorrSignature.TryCreate byteArray) with
+            | true, signature -> Ok (SchnorrSignature signature)
+            | _ -> Error "The byte array is not a valid schnorr signature."
+        | invalid ->
+            Error $"SchnorrSignature is invalid. The byte array is not 64 length but %i{invalid.Length / 2}"
+
+module EventId =
+    let parse = function
+        | Base64 64 byteArray -> Ok (EventId byteArray)
+        | invalid -> Error $"EventId is invalid. The byte array is not 32 length but %i{invalid.Length / 2}"
+
+
 module Decode =
+    let ofResult = function
+        | Ok result -> Decode.succeed result
+        | Error err -> Decode.fail err
+
     let expect expectedValue : Decoder<string> =
         Decode.string
         |> Decode.andThen (fun value ->
@@ -33,29 +61,18 @@ module Decode =
 
     let eventId: Decoder<EventId> =
         Decode.string
-        |> Decode.andThen (function
-            | Base64 64 byteArray -> Decode.succeed (EventId byteArray)
-            | invalid -> Decode.fail $"EventId is invalid. The byte array is not 32 length but %i{invalid.Length / 2}")
+        |> Decode.map EventId.parse
+        |> Decode.andThen ofResult
 
     let xOnlyPubkey: Decoder<XOnlyPubKey> =
         Decode.string
-        |> Decode.andThen (function
-            | Base64 64 byteArray ->
-                match (ECXOnlyPubKey.TryCreate byteArray) with
-                | true, pubkey -> Decode.succeed (XOnlyPubKey pubkey)
-                | _ -> Decode.fail "The byte array is not a valid xonly publick key."
-            | invalid ->
-                Decode.fail $"XOnlyPubKey is invalid. The byte array is not 32 length but %i{invalid.Length / 2}")
+        |> Decode.map XOnlyPubKey.parse
+        |> Decode.andThen ofResult
 
     let schnorrSignature: Decoder<SchnorrSignature> =
         Decode.string
-        |> Decode.andThen (function
-            | Base64 128 byteArray ->
-                match (SecpSchnorrSignature.TryCreate byteArray) with
-                | true, signature -> Decode.succeed (SchnorrSignature signature)
-                | _ -> Decode.fail "The byte array is not a valid schnorr signature."
-            | invalid ->
-                Decode.fail $"SchnorrSignature is invalid. The byte array is not 64 length but %i{invalid.Length / 2}")
+        |> Decode.map SchnorrSignature.parse
+        |> Decode.andThen ofResult
 
     let tag: Decoder<Tag> =
         Decode.list Decode.string
