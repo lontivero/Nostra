@@ -237,3 +237,39 @@ module Shareable =
                 | _ -> None                
             | _ -> None
             )
+
+    let decodeNpub str =
+        decode str
+        |> Option.bind (function
+            | NPub pk -> Some (XOnlyPubKey pk)
+            | _ ->  None)
+
+    let decodeNsec str =
+        decode str
+        |> Option.bind (function
+            | NSec sk -> Some sk
+            | _ ->  None)
+
+    let decodeNote str =
+        decode str
+        |> Option.bind (function
+            | Note eventId -> Some eventId
+            | _ ->  None)
+
+    let decodeNprofile str =
+        decode str
+        |> Option.bind (function
+            | NProfile (pk, relays) -> Some (pk, relays)
+            | _ ->  None)
+
+    let decodeNevent str =
+        decode str
+        |> Option.bind (function
+            | NEvent (eventId, relays, author, kind) -> Some (eventId, relays, author, kind)
+            | _ ->  None)
+
+    let decodeNrelay str =
+        decode str
+        |> Option.bind (function
+            | NRelay relays -> Some relays
+            | _ ->  None)
