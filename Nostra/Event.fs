@@ -3,6 +3,7 @@
 open System
 open System.Security.Cryptography
 open System.Text
+open Microsoft.FSharp.Core
 open NBitcoin.Secp256k1
 open Thoth.Json.Net
 
@@ -28,12 +29,13 @@ module Encryption =
         let aes = Aes.Create(Key = decryptionKey, IV = iv)
         aes.DecryptCbc(cipherTextBytes, iv) |> Encoding.UTF8.GetString
 
+type Profile =
+    { Name : string
+      About : string
+      Picture : string
+      Additional : (string * JsonValue) list }
+
 module Profile =
-    type Profile =
-        { Name : string
-          About : string
-          Picture : string
-          Additional : (string * JsonValue) list }
 
     let additional (fieldName : string) (profile : Profile) =
         profile.Additional |> List.tryFind (fun (k, _) -> k = fieldName ) |> Option.map (fun (_, v) -> v.ToString())
@@ -69,38 +71,41 @@ module Profile =
             ] @ [for k, v in profile.Additional do k, v]
             |> Encode.object
 
+type Kind =
+    | Metadata = 0
+    | Text = 1
+    | Recommend = 2
+    | Contacts = 3
+    | Encrypted = 4
+    | Delete = 5
+    | Repost = 6
+    | Reaction = 7
+    | ReplaceableStart = 10_000
+    | ReplaceableEnd = 20_000
+    | EphemeralStart = 20_000
+    | EphemeralEnd = 30_000
+    | ParameterizableReplaceableStart = 30_000
+    | ParameterizableReplaceableEnd = 40_000
+
+type Event =
+    { Id: EventId
+      PubKey: XOnlyPubKey
+      CreatedAt: DateTime
+      Kind: Kind
+      Tags: Tag list
+      Content: string
+      Signature: SchnorrSignature }
+
+[<RequireQualifiedAccess>]
 module Event =
     open Utils
+
     let replyTag (EventId replyTo) uri = Tag("p", [ toHex replyTo; uri ])
 
     let encryptedTo (XOnlyPubKey pubkey) = Tag("p", [ toHex (pubkey.ToBytes()) ])
 
     let eventRefTag (EventId eventId) = Tag("e", [ toHex eventId ])
 
-    type Kind =
-        | Metadata = 0
-        | Text = 1
-        | Recommend = 2
-        | Contacts = 3
-        | Encrypted = 4
-        | Delete = 5
-        | Repost = 6
-        | Reaction = 7
-        | ReplaceableStart = 10_000
-        | ReplaceableEnd = 20_000
-        | EphemeralStart = 20_000
-        | EphemeralEnd = 30_000
-        | ParameterizableReplaceableStart = 30_000
-        | ParameterizableReplaceableEnd = 40_000
-
-    type Event =
-        { Id: EventId
-          PubKey: XOnlyPubKey
-          CreatedAt: DateTime
-          Kind: Kind
-          Tags: Tag list
-          Content: string
-          Signature: SchnorrSignature }
 
     type UnsignedEvent =
         { CreatedAt: DateTime
@@ -144,22 +149,22 @@ module Event =
     let serialize event =
         event |> Encode.event |> Encode.toCanonicalForm
 
-    let createEvent kind tags content =
+    let create kind tags content =
         { CreatedAt = DateTime.UtcNow
           Kind = kind
           Tags = tags
           Content = content }
 
-    let createNoteEvent content = createEvent Kind.Text [] content
+    let createNote content = create Kind.Text [] content
 
     let createReplyEvent (replyTo: EventId) content =
-        createEvent Kind.Text [ replyTag replyTo "" ] content
+        create Kind.Text [ replyTag replyTo "" ] content
 
     let createDeleteEvent (ids: EventId list) content =
-        createEvent Kind.Delete (ids |> List.map eventRefTag) content
+        create Kind.Delete (ids |> List.map eventRefTag) content
 
-    let createProfileEvent (profile : Profile.Profile) =
-        createEvent Kind.Metadata [] (profile |> Profile.Encode.profile |> Encode.toCanonicalForm)
+    let createProfileEvent (profile : Profile) =
+        create Kind.Metadata [] (profile |> Profile.Encode.profile |> Encode.toCanonicalForm)
 
     let sharedKey (XOnlyPubKey he) (mySecret: ECPrivKey) =
         let ecPubKey = ReadOnlySpan(Array.insertAt 0 2uy (he.ToBytes()))
@@ -171,7 +176,7 @@ module Event =
         let sharedPubKey = sharedKey recipient secret
         let iv, encryptedContent = Encryption.encrypt sharedPubKey content
 
-        createEvent
+        create
             Kind.Encrypted
             [ encryptedTo recipient ]
             $"{Convert.ToBase64String(encryptedContent)}?iv={Convert.ToBase64String(iv)}"

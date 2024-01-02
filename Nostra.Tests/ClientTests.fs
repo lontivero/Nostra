@@ -20,8 +20,8 @@ let expectEvent msg asserts =
 type EchoServerFixture() =
     let cts = new CancellationTokenSource()
     let port = EchoServer.startEchoServer cts.Token
-    member x.Port = port 
-        
+    member x.Port = port
+
     interface IDisposable with
         member this.Dispose() = cts.Cancel()
 
@@ -34,10 +34,10 @@ type ``Client tests``(output:ITestOutputHelper, fixture: EchoServerFixture) =
     let ``Can receive encrypted messages`` () = async {
         let! send, receive = Client.createClient fixture.Port
         let secret = Key.createNewRandom ()
-        let pubkey = Key.getPubKey secret |> XOnlyPubKey 
+        let pubkey = Key.getPubKey secret |> XOnlyPubKey
         let event = Event.createEncryptedDirectMessage pubkey secret "hello" |> Event.sign secret
         do! send (createRelayMessage "sid" (Event.serialize event))
-        
+
         event.Content |> should not' (equal "hello", "The note is not encrypted")
         event.Content |> should haveSubstring "?iv="
 
@@ -45,24 +45,24 @@ type ``Client tests``(output:ITestOutputHelper, fixture: EchoServerFixture) =
         expectEvent msg (fun _ encryptedEvent ->
             let decryptedContent = Event.decryptDirectMessage secret encryptedEvent
             decryptedContent |> should equal "hello")
-    } 
-            
+    }
+
     [<Fact>]
     let ``Can receive a valid event from relay`` () = async {
         let! send, receive = Client.createClient fixture.Port
-        let event = Event.createNoteEvent "Welcome" |> Event.sign (Key.createNewRandom())
+        let event = Event.createNote "Welcome" |> Event.sign (Key.createNewRandom())
         do! send (createRelayMessage "sid" (Event.serialize event))
 
         let! msg = receive
         expectEvent msg (fun subscriptionId event ->
             subscriptionId |> should equal "sid"
             event.Content |> should equal "Welcome")
-    } 
+    }
 
     [<Fact>]
     let ``Can detect invalid (non-authentic) events`` () = async {
         let! send, receive = Client.createClient fixture.Port
-        let event = Event.createNoteEvent "Welcome" |> Event.sign (Key.createNewRandom())
+        let event = Event.createNote "Welcome" |> Event.sign (Key.createNewRandom())
         let modifiedEvent = { event with Content = event.Content.Replace("Welcome","Bienvenido") }
         let serializedModifiedEvent = modifiedEvent |> Event.serialize
         do! send (createRelayMessage "sid" serializedModifiedEvent)
@@ -83,11 +83,11 @@ type ``Client tests``(output:ITestOutputHelper, fixture: EchoServerFixture) =
         | Ok _ -> failwith "It should have detected the event is invalid"
         | Error error -> ()
     }
-     
+
     [<Fact>]
     let ``Fails with malformed relay messages (eventId)`` () = async {
         let! send, receive = Client.createClient fixture.Port
-        let message = """["OK","",true,"a message"]""" 
+        let message = """["OK","",true,"a message"]"""
         do! send message
 
         let! msg = receive
@@ -95,11 +95,11 @@ type ``Client tests``(output:ITestOutputHelper, fixture: EchoServerFixture) =
         | Ok _ -> failwith "It should have detected the event is invalid"
         | Error error -> error |> should haveSubstring "EventId is invalid"
     }
-    
+
     [<Fact>]
     let ``Fails with garbage received from relay`` () = async {
         let! send, receive = Client.createClient fixture.Port
-        let message = """["Invalid garbage}""" 
+        let message = """["Invalid garbage}"""
         do! send message
 
         let! msg = receive
@@ -107,5 +107,5 @@ type ``Client tests``(output:ITestOutputHelper, fixture: EchoServerFixture) =
         | Ok _ -> failwith "It should have detected the event is invalid"
         | Error error -> error |> should haveSubstring "invalid"
     }
-    
-    interface IClassFixture<EchoServerFixture> 
+
+    interface IClassFixture<EchoServerFixture>

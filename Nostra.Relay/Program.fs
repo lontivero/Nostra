@@ -7,7 +7,6 @@ open Microsoft.FSharp.Control
 open FsToolkit.ErrorHandling
 open Nostra
 open Nostra.ClientContext
-open Nostra.Event
 open Nostra.Relay
 open Relay.Request
 open Relay.Response
@@ -18,23 +17,23 @@ open MessageProcessing
 open Suave
 open Suave.Sockets
 open Suave.Sockets.Control
-open Suave.WebSocket           
+open Suave.WebSocket
 
 let webSocketHandler () =
     let handle (env : Context) (webSocket : WebSocket) (context: HttpContext) =
         let subscriptions = Dictionary<SubscriptionId, Filter list>()
 
-        let send = 
+        let send =
             let worker =
                 MailboxProcessor<RelayMessage>.Start(fun inbox ->
-                    let rec loop () = async { 
+                    let rec loop () = async {
                         let! msg = inbox.Receive()
                         let! result = webSocket.send Text (toPayload msg) true
                         return! loop ()
                     }
                     loop () )
             worker.Post
-       
+
         let notifyEvent : EventEvaluator =
             fun event ->
                 subscriptions
@@ -42,14 +41,14 @@ let webSocketHandler () =
                 |> Seq.tryFind(fun (_, m) -> m = true)
                 |> Option.iter (fun (subscriptionId, _) ->
                     send (RMEvent (subscriptionId, event.Serialized)))
-        
+
         let clientId =
             let ip = context.clientIp true []
             let port = context.clientPort true []
             ClientId(ip , port)
 
         let processRequest req = processRequest env subscriptions req
-            
+
         let rec loop () = socket {
             let! msg = webSocket.read()
             match msg with
@@ -62,8 +61,8 @@ let webSocketHandler () =
                 | (final::messages) ->
                     messages
                     |> List.rev
-                    |> List.iter send 
-                    send final 
+                    |> List.iter send
+                    send final
                     ())
                 |> Async.RunSynchronously
                 |> Result.defaultWith (function
@@ -71,7 +70,7 @@ let webSocketHandler () =
                         send e
                     | UnexpectedError e ->
                         env.logger.logError (e.ToString())
-                        send (RMNotice "unexpected error"))  
+                        send (RMNotice "unexpected error"))
 
                 return! loop()
             | Close, _, _ ->
@@ -81,11 +80,11 @@ let webSocketHandler () =
             | _ ->
                 return! loop()
         }
-        
-        env.clientRegistry.subscribe clientId notifyEvent   
+
+        env.clientRegistry.subscribe clientId notifyEvent
         loop ()
     Monad.Reader (fun (ctx : Context) -> handle ctx)
-    
+
 open Suave.Operators
 open Suave.Filters
 open Suave.RequestErrors
@@ -103,7 +102,7 @@ let buildContext (connectionString : string) (logger: TextWriter) =
     let dbconnection = Database.connection connectionString
     Database.createTables dbconnection
 
-    {    
+    {
         eventStore = {
             saveEvent = Database.saveEvent dbconnection
             deleteEvents = Database.deleteEvents dbconnection
@@ -115,30 +114,30 @@ let buildContext (connectionString : string) (logger: TextWriter) =
             logDebug = logger.WriteLine
             logError = logger.WriteLine
         }
-    }   
+    }
 
 open System
 
-let app : WebPart =   
+let app : WebPart =
     let env = buildContext "Data Source=mydb.db" Console.Out
     let wsHandler = Monad.injectedWith env (webSocketHandler ())
-    
+
     let handleRequest continuation (ctx : HttpContext) =
         let acceptHeader = ctx.request.header("Accept")
         let upgradeHeader = ctx.request.header("Upgrade")
         match acceptHeader, upgradeHeader with
         | Choice1Of2 "application/nostr+json", _ -> relayInformationDocument ctx
         | _, Choice1Of2 "websocket" -> handShake continuation ctx
-        | _ -> OK "Use a Nostr client" ctx 
-            
-    choose [ 
+        | _ -> OK "Use a Nostr client" ctx
+
+    choose [
         path "/" >=> handleRequest wsHandler
-        POST >=> path "/api/req" >=> 
+        POST >=> path "/api/req" >=>
             fun ctx ->
                 let filterResult =
                     UTF8.toString ctx.request.rawForm
                     |> Decode.fromString Filter.Decode.filter
-                    
+
                 match filterResult with
                 | Ok filter ->
                     asyncResult {
@@ -147,7 +146,7 @@ let app : WebPart =
                                 |> List.map Encode.string
                                 |> Encode.list
                                 |> Encode.toCanonicalForm
-                                |> Ok                                
+                                |> Ok
                     }
                     |> Async.RunSynchronously
                     |> function
@@ -176,4 +175,4 @@ let main argv =
     let cts = new CancellationTokenSource()
     let conf = { defaultConfig with cancellationToken = cts.Token; logger = logger }
     startWebServer conf app
-    0 // return an integer exit code    
+    0 // return an integer exit code

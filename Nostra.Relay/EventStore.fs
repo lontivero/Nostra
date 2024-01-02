@@ -1,7 +1,6 @@
 module EventStore
 
 open Nostra
-open Nostra.Event
 open Nostra.Relay
 
 type EventSaver = StoredEvent -> Async<Result<unit, exn>>
@@ -14,14 +13,14 @@ type EventStore = {
     fetchEvents : EventsFetcher
 }
 
-let filterEvents (fetchEvents : EventsFetcher) filters = 
+let filterEvents (fetchEvents : EventsFetcher) filters =
     filters
     |> fetchEvents
-    
+
 
 let storeEvent (saveEvent : EventSaver) (deleteEvents : EventsDeleter) preprocessed = async {
-    if not (isEphemeral preprocessed.Event) then
-        let! _ = saveEvent preprocessed 
+    if not (Event.isEphemeral preprocessed.Event) then
+        let! _ = saveEvent preprocessed
         match preprocessed.Event.Kind with
         | Kind.Delete ->
             let! _ = deleteEvents preprocessed.Event.PubKey preprocessed.RefEvents

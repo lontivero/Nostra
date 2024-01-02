@@ -7,7 +7,6 @@ open FsToolkit.ErrorHandling
 open System
 open Nostra
 open Nostra.ClientContext
-open Nostra.Event
 open Nostra.Relay
 open Relay.Request
 open Relay.Response
@@ -58,7 +57,7 @@ let noticeError error =
     BusinessError (RMNotice error)
 
 let canPersistEvent (event : Event) = result {
-    do! Result.requireTrue (ackError event.Id "invalid: the signature is incorrect") (verify event)
+    do! Result.requireTrue (ackError event.Id "invalid: the signature is incorrect") (Event.verify event)
     }
 
 let verifyCanSubscribe subscriptionId filters (subscriptionStore : SubscriptionStore) = result {
