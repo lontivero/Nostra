@@ -7,6 +7,10 @@
     <ItemGroup>
         <Compile Include="Utils.fs" />
         <Compile Include="Types.fs" />
+        <Compile Include="Key.fs" />
+        <Compile Include="Encryption.fs" />
+        <Compile Include="Profile.fs" />
+        <Compile Include="Tag.fs" />
         <Compile Include="Event.fs" />
         <Compile Include="EncryptedPayload.fs" />
         <Compile Include="Bech32.fs" />

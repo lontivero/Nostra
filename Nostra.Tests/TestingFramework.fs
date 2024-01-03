@@ -4,7 +4,6 @@ open System.Collections.Generic
 open System.Threading
 open NBitcoin.Secp256k1
 open Nostra
-open Nostra.Event
 open Nostra.Client.Response
 open Nostra.Tests
 open FsUnit.Xunit
@@ -21,7 +20,7 @@ type User = {
     Secret : ECPrivKey
     Connection : Connection option
 }
-        
+
 type TestContext = {
     Users: Dictionary<string, User>
     CurrentUser: string
@@ -30,7 +29,7 @@ type TestContext = {
 
 type TestStep = TestContext -> Async<TestContext>
 type FilterFactory = TestContext -> string
-type EventFactory = TestContext -> UnsignedEvent
+type EventFactory = TestContext -> Event.UnsignedEvent
 
 let ($) prev next = prev |> Async.bind next
 
@@ -42,15 +41,15 @@ let ``start relay`` () = async {
     let testContext = { CurrentUser = ""; Users = Dictionary<string, User>(); Port = port }
     return testContext
 }
-    
+
 let ``given`` user : TestStep =
-    fun ctx -> 
+    fun ctx ->
         let alreadyExists, knownUser = ctx.Users.TryGetValue(user)
         if not alreadyExists then
             let secret = Key.createNewRandom ()
             ctx.Users.Add (user, { Secret = secret; SentEvents = ResizeArray<Event>(); ReceivedEvents = ResizeArray<Event>(); Connection = None })
         async { return { ctx with CurrentUser = user } }
-        
+
 let ``connect to relay`` : TestStep =
     fun ctx -> async {
         let curUser = currentUser(ctx)
@@ -70,7 +69,7 @@ let ``wait for event`` subscriptionId : TestStep =
         match response with
         | Ok (RMEvent(subscriptionId, event)) ->
             events.Add event
-        | _ -> failwith "Unexpected message"                
+        | _ -> failwith "Unexpected message"
     }
 
     fun ctx -> async {
@@ -80,9 +79,9 @@ let ``wait for event`` subscriptionId : TestStep =
             do! receiveEvents conn.Receiver user.ReceivedEvents
         | None _ ->
             failwith $"User '{ctx.CurrentUser}' is not connected."
-        return ctx            
+        return ctx
     }
-    
+
 let ``subscribe to`` subscriptionId (filterFactory: FilterFactory): TestStep =
     let rec receiveEvents subscriptionId receiver (events: Event ResizeArray) = async {
         let! response = receiver
@@ -92,9 +91,9 @@ let ``subscribe to`` subscriptionId (filterFactory: FilterFactory): TestStep =
             do! receiveEvents subscriptionId receiver events
         | Ok (RMEOSE subscriptionId) ->
             ()
-        | _ -> failwith "Unexpected message"                
+        | _ -> failwith "Unexpected message"
     }
-        
+
     fun ctx -> async {
         let user = currentUser ctx
         match user.Connection with
@@ -105,25 +104,25 @@ let ``subscribe to`` subscriptionId (filterFactory: FilterFactory): TestStep =
             failwith $"User '{ctx.CurrentUser}' is not connected."
         return ctx
     }
-    
+
 let ``subscribe to all events`` : TestStep =
     ``subscribe to`` "all" (fun _ -> "{}")
 
 let notes : FilterFactory =
-    fun ctx -> """{"kinds": [1]}"""    
+    fun ctx -> """{"kinds": [1]}"""
 
 let events : FilterFactory =
-    fun ctx -> """{}"""    
+    fun ctx -> """{}"""
 
 let latest n : FilterFactory =
-    fun ctx -> $"""{{"limit": {n}}}"""    
+    fun ctx -> $"""{{"limit": {n}}}"""
 
 let eventsFrom who : FilterFactory =
     fun ctx ->
         let user = ctx.Users[who]
         let pubkey = user.Secret |> Key.getPubKey |> fun x -> x.ToBytes() |> Utils.toHex
-        $"""{{"authors": ["{pubkey}"]}}"""    
-    
+        $"""{{"authors": ["{pubkey}"]}}"""
+
 let ``send event`` eventFactory : TestStep =
     fun ctx -> async {
         let user = currentUser ctx
@@ -131,7 +130,7 @@ let ``send event`` eventFactory : TestStep =
         | Some conn ->
             let signedEvent = eventFactory ctx |> Event.sign user.Secret
             let serializedEvent = Event.serialize signedEvent
-            do! conn.Sender $"""["EVENT",{serializedEvent}]"""                 
+            do! conn.Sender $"""["EVENT",{serializedEvent}]"""
             let! response = conn.Receiver
             match response with
             | Ok (RMACK(_, true, _)) -> should equal true true
@@ -147,24 +146,24 @@ let verify f ctx =
     ctx
     |> Async.RunSynchronously
     |> f
-    
+
 let note content ctx =
-    Event.createNoteEvent content
-    
+    Event.createNote content
+
 let replaceableNote content : EventFactory =
-    fun ctx -> Event.createEvent Kind.ReplaceableStart [] content
+    fun ctx -> Event.create Kind.ReplaceableStart [] content
 
 let parameterizedNote content dtag : EventFactory =
-    fun ctx -> Event.createEvent Kind.ParameterizableReplaceableStart [("d", [dtag])] content
+    fun ctx -> Event.create Kind.ParameterizableReplaceableStart [("d", [dtag])] content
 
 let ephemeralNote content : EventFactory =
-    fun ctx -> Event.createEvent Kind.EphemeralStart [] content
+    fun ctx -> Event.create Kind.EphemeralStart [] content
 
 let expirableNote content expirationDate : EventFactory =
-    fun ctx -> Event.createEvent Kind.Text [("expiration", [string expirationDate])] content
+    fun ctx -> Event.create Kind.Text [("expiration", [string expirationDate])] content
 
 let deleteNote evnts : EventFactory =
-    fun ctx -> 
+    fun ctx ->
         let allEvents =
             ctx.Users
             |> Seq.map (fun x -> x.Key, x.Value)
@@ -176,9 +175,9 @@ let deleteNote evnts : EventFactory =
             allEvents
             |> List.filter (fun e -> List.contains (e.Content) evnts)
             |> List.map (fun e -> e.Id)
-            
-        Event.createDeleteEvent ids "nothing" 
-    
+
+        Event.createDeleteEvent ids "nothing"
+
 [<Literal>]
 let Alice = "Alice"
 [<Literal>]

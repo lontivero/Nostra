@@ -3,10 +3,10 @@ namespace Nostra
 module Bech32 =
     type HRP = string
 
-    let toWord5 (x:int) = byte (x &&& 31) 
+    let toWord5 (x:int) = byte (x &&& 31)
 
     let charset = "qpzry9x8gf2tvdw0s3jn54khce6mua7l"
-    let charsetRev = 
+    let charsetRev =
         [|
             -1; -1; -1; -1; -1; -1; -1; -1; -1; -1; -1; -1; -1; -1; -1; -1;
             -1; -1; -1; -1; -1; -1; -1; -1; -1; -1; -1; -1; -1; -1; -1; -1;
@@ -15,7 +15,7 @@ module Bech32 =
             -1; 29; -1; 24; 13; 25;  9;  8; 23; -1; 18; 22; 31; 27; 19; -1;
              1;  0;  3; 16; 11; 28; 12; 14;  6;  4;  2; -1; -1; -1; -1; -1;
             -1; 29; -1; 24; 13; 25;  9;  8; 23; -1; 18; 22; 31; 27; 19; -1;
-             1;  0;  3; 16; 11; 28; 12; 14;  6;  4;  2; -1; -1; -1; -1; -1; 
+             1;  0;  3; 16; 11; 28; 12; 14;  6;  4;  2; -1; -1; -1; -1; -1;
         |]
         |> Array.map (fun x -> if x = -1 then None else Some (toWord5 x))
 
@@ -58,12 +58,12 @@ module Bech32 =
         let maxValue = (1 <<< toBits) - 1
 
         let result, acc, bits =
-            data 
+            data
             |> List.fold (fun (result, acc, bits) value ->
                 let acc' = (acc <<< fromBits) ||| int value
                 let bits' = bits + fromBits
                 let result' = [for b in [(bits' - toBits) .. -toBits .. 0] do (acc' >>> b) &&& maxValue]
-                result' :: result, acc', bits' % toBits) ([], 0, 0) 
+                result' :: result, acc', bits' % toBits) ([], 0, 0)
         let padValue = (acc <<< (toBits - bits)) &&& maxValue
         pad toBits padValue result |> List.rev |> List.concat
 
@@ -112,7 +112,7 @@ module Bech32 =
                 Some(d[.. d.Length - 7])
             else
                 None)
-        |> Option.map (fun data -> (hrp, toBase256 data))
+        |> Option.map (fun data -> (hrp, toBase256 data |> List.toArray))
 
 module Shareable =
     open System
@@ -133,15 +133,15 @@ module Shareable =
 
     let private _encode hrp bytesArr =
         Bech32.encode hrp (bytesArr |> Array.toList)
-        
+
     let encode = function
         | NSec ecPrivKey ->
             let bytes = Array.create 32 0uy
             ecPrivKey.WriteToSpan bytes
-            bytes |> _encode "nsec" 
+            bytes |> _encode "nsec"
         | NPub ecxOnlyPubKey ->
-            ecxOnlyPubKey.ToBytes() |> _encode "npub" 
-        | Note(EventId eventId) ->        
+            ecxOnlyPubKey.ToBytes() |> _encode "npub"
+        | Note(EventId eventId) ->
             eventId |> _encode "note"
         | NProfile(ecxOnlyPubKey, relays) ->
             let pubkey = ecxOnlyPubKey.ToBytes() |> Array.toList
@@ -167,7 +167,7 @@ module Shareable =
                 kind
                 |> Option.map (fun kind -> 3uy :: 4uy :: List.ofArray (BitConverter.GetBytes kind))
                 |> Option.defaultValue []
-                
+
             [
                 0uy :: 32uy :: (List.ofArray eventId)
                 encodedRelays
@@ -181,26 +181,25 @@ module Shareable =
             |> Encoding.ASCII.GetBytes
             |> List.ofArray
             |> fun encodedRelay -> 0uy :: byte (encodedRelay.Length) :: encodedRelay
-            |> Bech32.encode "nrelay"  
-        
-    let parseTLV (bytes : byte list) = 
+            |> Bech32.encode "nrelay"
+
+    let parseTLV (bytes : byte[]) =
         let rec parse = function
             | typ :: len :: rest -> (typ, rest[..(int len) - 1]) :: (parse rest[int len..])
             | _ -> []
-        
-        let elemByType = parse bytes
+
+        let elemByType = parse (bytes |> List.ofArray)
         [0uy..3uy]
         |> List.map (fun typ0 -> elemByType |> List.filter (fun (typ1, es) -> typ0 = typ1) |> List.map snd)
-                    
+
     let decode str =
         Bech32.decode str
-        |> Option.bind (fun (hrp, bytes) ->
-            let byteArray = bytes |> List.toArray
+        |> Option.bind (fun (hrp, byteArray) ->
             match hrp with
             | "nsec" ->
                 ECPrivKey.TryCreate byteArray
                 |> Option.ofTuple
-                |> Option.map NSec               
+                |> Option.map NSec
             | "npub" ->
                 ECXOnlyPubKey.TryCreate byteArray
                 |> Option.ofTuple
@@ -208,14 +207,14 @@ module Shareable =
             | "note" ->
                 Some (Note (EventId byteArray))
             | "nprofile" ->
-                match parseTLV bytes with
+                match parseTLV byteArray with
                 | [[secKey]; relays; _; _] ->
                     ECXOnlyPubKey.TryCreate (secKey |> List.toArray)
                     |> Option.ofTuple
                     |> Option.map (fun key -> NProfile(key, relays |> List.map (List.toArray >> Encoding.ASCII.GetString)))
                 | _ -> None
             | "nevent" ->
-                match parseTLV bytes with
+                match parseTLV byteArray with
                 | [[eventId]; relays; authors; kinds]  ->
                     Some (NEvent(
                             EventId (eventId |> List.toArray),
@@ -231,10 +230,10 @@ module Shareable =
                         ))
                 | _ -> None
             | "nrelay" ->
-                match parseTLV bytes with
+                match parseTLV byteArray with
                 | [[relayUrl]; _; _; _]  ->
                     Some (NRelay(Encoding.ASCII.GetString (List.toArray relayUrl)))
-                | _ -> None                
+                | _ -> None
             | _ -> None
             )
 

@@ -14,7 +14,6 @@ type SubscriptionId = string
 
 type Uri_ = string
 type SchnorrSignature = SchnorrSignature of SecpSchnorrSignature
-type Tag = string * (string list)
 type SerializedEvent = string
 
 module XOnlyPubKey =
@@ -74,11 +73,6 @@ module Decode =
         |> Decode.map SchnorrSignature.parse
         |> Decode.andThen ofResult
 
-    let tag: Decoder<Tag> =
-        Decode.list Decode.string
-        |> Decode.andThen (function
-            | key :: values -> Decode.succeed (Tag(key, values))
-            | _ -> Decode.fail "The Tag isn't a key/value pair.")
 
 module Encode =
     let unixDateTime (date: DateTime) = Encode.uint32 (toUnixTime date)
@@ -90,10 +84,6 @@ module Encode =
 
     let schnorrSignature (SchnorrSignature signature) =
         Encode.string (toHex (signature.ToBytes()))
-
-    let tag (tag: Tag) =
-        let key, values = tag
-        Encode.list ([ Encode.string key ] @ (values |> List.map Encode.string))
 
     let toCanonicalForm (token: JsonValue) : string =
         use stream = new StringWriter(NewLine = "")

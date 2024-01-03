@@ -5,28 +5,23 @@ open System.Text
 open Thoth.Json.Net
 
 module Relay =
-    open Nostra.Event
-    
+
     type StoredEvent = {
         Id: string
         Event: Event
         PubKey: string
         Serialized: SerializedEvent
         Seen: DateTime
-        Tags: Tag list
-        RefEvents: string list
-        RefPubKeys: string list
-        DTag: string option
     }
-    
+
     module Request =
         type Filter = {
             Ids: string list
-            Kinds: Kind list 
-            Authors: string list 
-            Limit: int option 
-            Since: DateTime option 
-            Until: DateTime option 
+            Kinds: Kind list
+            Authors: string list
+            Limit: int option
+            Since: DateTime option
+            Until: DateTime option
             Tags: Tag list
         }
 
@@ -34,7 +29,7 @@ module Relay =
             module Decode =
                 let filter : Decoder<Filter> =
                     let knownDecoder = Decode.object (fun get -> {
-                        Ids = get.Optional.Field "ids" (Decode.list Decode.string) |> Option.defaultValue [] 
+                        Ids = get.Optional.Field "ids" (Decode.list Decode.string) |> Option.defaultValue []
                         Kinds = get.Optional.Field "kinds" (Decode.list Decode.Enum.int) |> Option.defaultValue []
                         Authors = get.Optional.Field "authors" (Decode.list Decode.string) |> Option.defaultValue []
                         Limit = get.Optional.Field "limit" Decode.int
@@ -42,12 +37,12 @@ module Relay =
                         Until = get.Optional.Field "until" Decode.unixDateTime
                         Tags = []
                     })
-                    
+
                     let tagsDecoder : Decoder<Tag list> =
                         fun path value ->
                             match Decode.keys path value with
                             | Ok objectKeys ->
-                                let tagKeys = objectKeys |> Seq.filter (fun t -> t.Length > 1 && t.StartsWith "#") 
+                                let tagKeys = objectKeys |> Seq.filter (fun t -> t.Length > 1 && t.StartsWith "#")
                                 (Ok [], tagKeys ) ||> Seq.fold (fun acc prop ->
                                     match acc with
                                     | Error _ -> acc
@@ -57,11 +52,11 @@ module Relay =
                                         | Ok value -> (prop, value)::acc |> Ok)
                                 |> Result.map List.rev
                             | Error e -> Error e
-                              
+
                     Decode.map2 (fun known tags -> { known with Tags = tags })
                         knownDecoder
-                        tagsDecoder                
-                    
+                        tagsDecoder
+
             let eventMatchesFilter (eventInfo: StoredEvent) filter =
                 let matchList items list =
                     match list with
@@ -77,15 +72,13 @@ module Relay =
                     | Some since, None -> eventInfo.Event.CreatedAt >= since
                     | None, Some until -> eventInfo.Event.CreatedAt <= until
                     | Some since, Some until -> eventInfo.Event.CreatedAt >= since && eventInfo.Event.CreatedAt <= until
-                
-                let flatTags tags = List.ungroup tags
-                    
+
                 isInTimeWindow &&
                 filter.Ids     |> matchList [eventInfo.Id] &&
                 filter.Kinds   |> matchList [eventInfo.Event.Kind] &&
                 filter.Authors |> matchList [eventInfo.PubKey] &&
-                filter.Tags    |> flatTags |> matchList (flatTags eventInfo.Tags)                
-             
+                filter.Tags    |> Tag.ungroup |> matchList (Tag.ungroup eventInfo.Event.Tags)
+
             let eventMatchesAnyFilter (filters: Filter list) (event: StoredEvent) =
                 filters |> List.exists (eventMatchesFilter event)
 
@@ -110,14 +103,14 @@ module Relay =
                                 | Ok value -> Ok (value::acc))
                     else
                         Error ("", BadType("", token))
-                        
+
             let clientMessage : Decoder<ClientMessage> =
                 Decode.index 0 Decode.string
                 |> Decode.andThen ( function
                     | "EVENT" ->
                         Decode.map
                             (fun event -> CMEvent event)
-                            (Decode.index 1 Decode.event)
+                            (Decode.index 1 Event.Decode.event)
                     | "CLOSE" ->
                         Decode.map
                             (fun subscriptionId -> CMUnsubscribe subscriptionId)
@@ -138,18 +131,18 @@ module Relay =
             | RMNotice of string
             | RMAck of EventId * bool * string
             | RMEOSE of string
-            
+
         module Encode =
             let quote (x: string) = "\"" + x + "\""
             let serialize xs =
                 "[" + (String.concat "," xs) + "]"
-                
+
             let relayMessage = function
                 | RMEvent (subscriptionId, serializedEvent) ->
                     serialize (seq {
                         yield quote "EVENT"
                         yield quote subscriptionId
-                        yield serializedEvent } )   
+                        yield serializedEvent } )
                 | RMNotice message ->
                     serialize (seq {
                         yield quote "NOTICE"
@@ -157,7 +150,7 @@ module Relay =
                 | RMAck (EventId eventId, success, message) ->
                     serialize (seq {
                         yield quote "OK"
-                        yield quote (eventId |> Utils.toHex)   
+                        yield quote (eventId |> Utils.toHex)
                         yield (if success then "true" else "false")
                         yield quote message })
                 | RMEOSE subscriptionId ->

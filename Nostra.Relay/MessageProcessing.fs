@@ -7,11 +7,9 @@ open FsToolkit.ErrorHandling
 open System
 open Nostra
 open Nostra.ClientContext
-open Nostra.Event
 open Nostra.Relay
 open Relay.Request
 open Relay.Response
-open YoLo
 
 type SubscriptionStore = Dictionary<SubscriptionId, Filter list>
 
@@ -30,25 +28,12 @@ let preprocessEvent (event : Event) serializedEvent =
     let (XOnlyPubKey xOnlyPubkey) = event.PubKey
     let pubkey = xOnlyPubkey.ToBytes()
 
-    let tagsByKey key tags =
-        tags
-        |> List.filter (fun (k,_) -> k = key)
-        |> List.map snd
-
-    let tags = List.ungroup event.Tags
-
     {
         Event = event
         Id = Utils.toHex eventId
         PubKey = Utils.toHex pubkey
         Serialized = serializedEvent
         Seen = DateTime.UtcNow
-        Tags = event.Tags
-        RefEvents = tagsByKey "e" tags
-        RefPubKeys = tagsByKey "p" tags
-        DTag =
-            tagsByKey "d" tags
-            |> List.tryHead
     }
 
 let ackError eventId error =
@@ -58,7 +43,7 @@ let noticeError error =
     BusinessError (RMNotice error)
 
 let canPersistEvent (event : Event) = result {
-    do! Result.requireTrue (ackError event.Id "invalid: the signature is incorrect") (verify event)
+    do! Result.requireTrue (ackError event.Id "invalid: the signature is incorrect") (Event.verify event)
     }
 
 let verifyCanSubscribe subscriptionId filters (subscriptionStore : SubscriptionStore) = result {

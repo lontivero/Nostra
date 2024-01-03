@@ -90,7 +90,7 @@ let nip33Replacement connection author kind createdAt value =
     |> AsyncResult.map (fun x -> x > 0)
 
 let save connection eventId author preprocessedEvent = asyncResult {
-    let tags = List.ungroup preprocessedEvent.Event.Tags
+    let tags = Tag.ungroup preprocessedEvent.Event.Tags
 
     let! id =
         connection
@@ -170,7 +170,7 @@ let saveEvent connection (preprocessedEvent: StoredEvent) = asyncResult {
     let author = xOnlyPubkey.ToBytes()
     let kind = int event.Kind
     let createdAt = event.CreatedAt
-    let dtag = preprocessedEvent.DTag |> Option.defaultValue ""
+    let dtag = Tag.findByKey "d" preprocessedEvent.Event.Tags |> List.tryHead |> Option.defaultValue ""
 
     if Event.isReplaceable event then
         do! handleReplacement connection author kind createdAt
