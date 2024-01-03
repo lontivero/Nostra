@@ -25,6 +25,12 @@ module Utils =
     let fromUnixTime (unixDateTime : int) =
         (int64 unixDateTime * TimeSpan.TicksPerSecond + DateTime.UnixEpoch.Ticks |> DateTime)
 
+    let toBE (v : int) =
+        v |> BitConverter.GetBytes |> Array.rev
+
+    let fromBE (vs : byte[]) =
+        vs |> Array.rev |> BitConverter.ToInt32
+
 [<RequireQualifiedAccess>]
 module Option =
     let ofTuple = function
