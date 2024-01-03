@@ -12,10 +12,6 @@ module Relay =
         PubKey: string
         Serialized: SerializedEvent
         Seen: DateTime
-        Tags: Tag list
-        RefEvents: string list
-        RefPubKeys: string list
-        DTag: string option
     }
 
     module Request =
@@ -77,13 +73,11 @@ module Relay =
                     | None, Some until -> eventInfo.Event.CreatedAt <= until
                     | Some since, Some until -> eventInfo.Event.CreatedAt >= since && eventInfo.Event.CreatedAt <= until
 
-                let flatTags tags = List.ungroup tags
-
                 isInTimeWindow &&
                 filter.Ids     |> matchList [eventInfo.Id] &&
                 filter.Kinds   |> matchList [eventInfo.Event.Kind] &&
                 filter.Authors |> matchList [eventInfo.PubKey] &&
-                filter.Tags    |> flatTags |> matchList (flatTags eventInfo.Tags)
+                filter.Tags    |> Tag.ungroup |> matchList (Tag.ungroup eventInfo.Event.Tags)
 
             let eventMatchesAnyFilter (filters: Filter list) (event: StoredEvent) =
                 filters |> List.exists (eventMatchesFilter event)

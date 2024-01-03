@@ -7,69 +7,6 @@ open Microsoft.FSharp.Core
 open NBitcoin.Secp256k1
 open Thoth.Json.Net
 
-module Key =
-    let createNewRandom () =
-        fun _ -> ECPrivKey.TryCreate(ReadOnlySpan(RandomNumberGenerator.GetBytes(32)))
-        |> Seq.initInfinite
-        |> Seq.skipWhile (fun (succeed, _) -> not succeed)
-        |> Seq.map snd
-        |> Seq.head
-
-    let getPubKey (secret: ECPrivKey) = secret.CreateXOnlyPubKey()
-
-module Encryption =
-    let encrypt (encryptionKey: byte[]) (plainText: string) =
-        let iv = RandomNumberGenerator.GetBytes(16)
-        let aes = Aes.Create(Key = encryptionKey, IV = iv)
-        let plainTextBytes = ReadOnlySpan(Encoding.UTF8.GetBytes(plainText))
-        let cipherTextBytes = aes.EncryptCbc(plainTextBytes, iv)
-        iv, cipherTextBytes
-
-    let decrypt (decryptionKey: byte[]) (iv: byte[]) (cipherTextBytes: byte[]) =
-        let aes = Aes.Create(Key = decryptionKey, IV = iv)
-        aes.DecryptCbc(cipherTextBytes, iv) |> Encoding.UTF8.GetString
-
-type Profile =
-    { Name : string
-      About : string
-      Picture : string
-      Additional : (string * JsonValue) list }
-
-module Profile =
-
-    let additional (fieldName : string) (profile : Profile) =
-        profile.Additional |> List.tryFind (fun (k, _) -> k = fieldName ) |> Option.map (fun (_, v) -> v.ToString())
-
-    let nip05 = additional "nip05"
-    let displayName = additional "display_name"
-    let banner = additional "banner"
-    let lud06 = additional "lud06"
-    let lud16 = additional "lud16"
-
-    module Decode =
-        let profile : Decoder<Profile> =
-            let commonFieldNames = ["name"; "about"; "picture"; "banner"]
-            let commonFieldsDecoder = Decode.object (fun get ->
-                { Name = get.Required.Field "name" Decode.string
-                  About = get.Required.Field "about" Decode.string
-                  Picture = get.Required.Field "picture" Decode.string
-                  Additional = []
-                })
-            let additionalFieldsDecoder : Decoder<(string * JsonValue) list> =
-                Decode.keyValuePairs Decode.value
-                |> Decode.map (List.filter (fun (name, _) -> not (List.contains name commonFieldNames)))
-
-            Decode.map2 (fun common additional -> { common with Additional =  additional })
-                commonFieldsDecoder
-                additionalFieldsDecoder
-
-    module Encode =
-        let profile (profile : Profile) =
-            [ "name", Encode.string profile.Name
-              "about", Encode.string profile.About
-              "picture", Encode.string profile.Picture
-            ] @ [for k, v in profile.Additional do k, v]
-            |> Encode.object
 
 type Kind =
     | Metadata = 0
@@ -100,12 +37,6 @@ type Event =
 module Event =
     open Utils
 
-    let replyTag (EventId replyTo) uri = Tag("p", [ toHex replyTo; uri ])
-
-    let encryptedTo (XOnlyPubKey pubkey) = Tag("p", [ toHex (pubkey.ToBytes()) ])
-
-    let eventRefTag (EventId eventId) = Tag("e", [ toHex eventId ])
-
 
     type UnsignedEvent =
         { CreatedAt: DateTime
@@ -114,13 +45,14 @@ module Event =
           Content: string }
 
     module Decode =
+
         let event: Decoder<Event> =
             Decode.object (fun get ->
                 { Id = get.Required.Field "id" Decode.eventId
                   PubKey = get.Required.Field "pubkey" Decode.xOnlyPubkey
                   CreatedAt = get.Required.Field "created_at" Decode.unixDateTime
                   Kind = get.Required.Field "kind" Decode.Enum.int
-                  Tags = get.Required.Field "tags" (Decode.list Decode.tag)
+                  Tags = get.Required.Field "tags" Tag.Decode.tagList
                   Content = get.Required.Field "content" Decode.string
                   Signature = get.Required.Field "sig" Decode.schnorrSignature })
 
@@ -131,7 +63,7 @@ module Event =
                   "pubkey", Encode.xOnlyPubkey event.PubKey
                   "created_at", Encode.unixDateTime event.CreatedAt
                   "kind", Encode.Enum.int event.Kind
-                  "tags", event.Tags |> List.map Encode.tag |> Encode.list
+                  "tags", Tag.Encode.tagList event.Tags
                   "content", Encode.string event.Content
                   "sig", Encode.schnorrSignature event.Signature ]
 
@@ -142,7 +74,7 @@ module Event =
                   Encode.xOnlyPubkey pubkey
                   Encode.unixDateTime event.CreatedAt
                   Encode.Enum.int event.Kind
-                  Encode.list (event.Tags |> List.map Encode.tag)
+                  Tag.Encode.tagList event.Tags
                   Encode.string event.Content ]
         )
 
@@ -158,10 +90,10 @@ module Event =
     let createNote content = create Kind.Text [] content
 
     let createReplyEvent (replyTo: EventId) content =
-        create Kind.Text [ replyTag replyTo "" ] content
+        create Kind.Text [ Tag.replyTag replyTo "" ] content
 
     let createDeleteEvent (ids: EventId list) content =
-        create Kind.Delete (ids |> List.map eventRefTag) content
+        create Kind.Delete (ids |> List.map  Tag.eventRefTag) content
 
     let createProfileEvent (profile : Profile) =
         create Kind.Metadata [] (profile |> Profile.Encode.profile |> Encode.toCanonicalForm)
@@ -178,7 +110,7 @@ module Event =
 
         create
             Kind.Encrypted
-            [ encryptedTo recipient ]
+            [ Tag.encryptedTo recipient ]
             $"{Convert.ToBase64String(encryptedContent)}?iv={Convert.ToBase64String(iv)}"
 
     let decryptDirectMessage (secret: ECPrivKey) (event: Event) =

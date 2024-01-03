@@ -23,7 +23,8 @@ let storeEvent (saveEvent : EventSaver) (deleteEvents : EventsDeleter) preproces
         let! _ = saveEvent preprocessed
         match preprocessed.Event.Kind with
         | Kind.Delete ->
-            let! _ = deleteEvents preprocessed.Event.PubKey preprocessed.RefEvents
+            let eRef = Tag.findByKey "e" preprocessed.Event.Tags
+            let! _ = deleteEvents preprocessed.Event.PubKey eRef
             ()
         | _ -> ()
 }

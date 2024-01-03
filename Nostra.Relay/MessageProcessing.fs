@@ -10,7 +10,6 @@ open Nostra.ClientContext
 open Nostra.Relay
 open Relay.Request
 open Relay.Response
-open YoLo
 
 type SubscriptionStore = Dictionary<SubscriptionId, Filter list>
 
@@ -29,25 +28,12 @@ let preprocessEvent (event : Event) serializedEvent =
     let (XOnlyPubKey xOnlyPubkey) = event.PubKey
     let pubkey = xOnlyPubkey.ToBytes()
 
-    let tagsByKey key tags =
-        tags
-        |> List.filter (fun (k,_) -> k = key)
-        |> List.map snd
-
-    let tags = List.ungroup event.Tags
-
     {
         Event = event
         Id = Utils.toHex eventId
         PubKey = Utils.toHex pubkey
         Serialized = serializedEvent
         Seen = DateTime.UtcNow
-        Tags = event.Tags
-        RefEvents = tagsByKey "e" tags
-        RefPubKeys = tagsByKey "p" tags
-        DTag =
-            tagsByKey "d" tags
-            |> List.tryHead
     }
 
 let ackError eventId error =
