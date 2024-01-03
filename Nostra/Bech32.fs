@@ -65,7 +65,7 @@ module Bech32 =
                 let result' = [for b in [(bits' - toBits) .. -toBits .. 0] do (acc' >>> b) &&& maxValue]
                 result' :: result, acc', bits' % toBits) ([], 0, 0)
         let padValue = (acc <<< (toBits - bits)) &&& maxValue
-        pad toBits padValue result |> List.rev |> List.concat
+        pad bits padValue result |> List.rev |> List.concat
 
     let toBase32 data : byte list =
         convertBits data 8 5 yesPadding |> List.map toWord5
@@ -74,7 +74,7 @@ module Bech32 =
         convertBits data 5 8 noPadding |> List.map byte
 
     let createChecksum hrp data =
-        let values = hrpExpand (hrp) @ data
+        let values = hrpExpand hrp @ data
         let padx = List.replicate 6 (toWord5 0)
         let polymod = (polymod (values @ padx)) ^^^ 1
 
@@ -115,7 +115,6 @@ module Bech32 =
         |> Option.map (fun data -> (hrp, toBase256 data |> List.toArray))
 
 module Shareable =
-    open System
     open System.Text
     open Microsoft.FSharp.Collections
     open NBitcoin.Secp256k1
@@ -165,7 +164,7 @@ module Shareable =
                 |> Option.defaultValue []
             let encodedKind =
                 kind
-                |> Option.map (fun kind -> 3uy :: 4uy :: List.ofArray (BitConverter.GetBytes kind))
+                |> Option.map (fun kind -> 3uy :: 4uy :: List.ofArray (Utils.toBE kind))
                 |> Option.defaultValue []
 
             [
@@ -190,7 +189,7 @@ module Shareable =
 
         let elemByType = parse (bytes |> List.ofArray)
         [0uy..3uy]
-        |> List.map (fun typ0 -> elemByType |> List.filter (fun (typ1, es) -> typ0 = typ1) |> List.map snd)
+        |> List.map (fun typ0 -> elemByType |> List.filter (fun (typ1, _) -> typ0 = typ1) |> List.map snd)
 
     let decode str =
         Bech32.decode str
@@ -226,7 +225,7 @@ module Shareable =
                                 |> Option.ofTuple),
                             kinds
                             |> List.tryHead
-                            |> Option.map (List.head >> int)
+                            |> Option.map (List.toArray >> Utils.fromBE)
                         ))
                 | _ -> None
             | "nrelay" ->
