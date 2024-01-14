@@ -4,6 +4,7 @@ open System
 open System.Security.Cryptography
 open NBitcoin.Secp256k1
 
+[<RequireQualifiedAccess>]
 module Key =
     let createNewRandom () =
         fun _ -> ECPrivKey.TryCreate(ReadOnlySpan(RandomNumberGenerator.GetBytes(32)))
