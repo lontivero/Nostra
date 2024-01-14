@@ -22,6 +22,7 @@ module Tag =
     let encryptedTo (XOnlyPubKey pubkey) = Tag("p", [ toHex (pubkey.ToBytes()) ])
 
     let eventRefTag (EventId eventId) = Tag("e", [ toHex eventId ])
+    let rootEventRefTag (EventId eventId) = Tag("e", [ toHex eventId; ""; "root" ])
 
     open Thoth.Json.Net
 

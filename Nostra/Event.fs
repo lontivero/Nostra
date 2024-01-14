@@ -17,6 +17,11 @@ type Kind =
     | Delete = 5
     | Repost = 6
     | Reaction = 7
+    | ChannelCreate = 40
+    | ChannelMetadata = 41
+    | ChannelMessage = 42
+    | HideMessage = 43
+    | MuteUser = 44
     | ReplaceableStart = 10_000
     | ReplaceableEnd = 20_000
     | EphemeralStart = 20_000
@@ -92,6 +97,9 @@ module Event =
     let createReplyEvent (replyTo: EventId) content =
         create Kind.Text [ Tag.replyTag replyTo "" ] content
 
+    let createChannelMessage (replyTo: EventId) content =
+        create Kind.ChannelMessage [ Tag.rootEventRefTag replyTo ] content
+
     let createDeleteEvent (ids: EventId list) content =
         create Kind.Delete (ids |> List.map  Tag.eventRefTag) content
 
@@ -164,7 +172,7 @@ module Event =
     let expirationUnixDateTime (event: Event) =
         event.Tags
         |> List.ungroup
-        |> List.tryFind (fun (tagName, value) -> tagName = "expiration")
+        |> List.tryFind (fun (tagName, _) -> tagName = "expiration")
         |> Option.bind (fun (_, expirationTagValue) -> expirationTagValue |> Int32.TryParse |> Option.ofTuple)
 
     let isExpired (event: Event) (datetime: DateTime) =

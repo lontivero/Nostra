@@ -25,6 +25,12 @@ module XOnlyPubKey =
         | invalid ->
             Error $"XOnlyPubKey is invalid. The byte array is not 32 length but %i{invalid.Length / 2}"
 
+    let toBytes (XOnlyPubKey ecpk) =
+        ecpk.ToBytes()
+
+    let equals pk1 pk2 =
+        toBytes pk1 = toBytes pk2
+
 module SchnorrSignature =
     let parse = function
         | Base64 128 byteArray ->
@@ -39,11 +45,17 @@ module EventId =
         | Base64 64 byteArray -> Ok (EventId byteArray)
         | invalid -> Error $"EventId is invalid. The byte array is not 32 length but %i{invalid.Length / 2}"
 
+    let toBytes (EventId eid) =
+        eid
 
 module Decode =
     let ofResult = function
         | Ok result -> Decode.succeed result
         | Error err -> Decode.fail err
+
+    let ofOption errMsg = function
+        | Some result -> Decode.succeed result
+        | None -> Decode.fail errMsg
 
     let expect expectedValue : Decoder<string> =
         Decode.string
@@ -53,6 +65,10 @@ module Decode =
            else
               Decode.fail $"'{expectedValue}' was expected but '{value} was found instead'")
 
+    let uri: Decoder<Uri> =
+        Decode.string
+        |> Decode.map Uri
+
     let unixDateTime: Decoder<DateTime> =
         Decode.uint32
         |> Decode.andThen (fun n ->
@@ -60,7 +76,7 @@ module Decode =
 
     let eventId: Decoder<EventId> =
         Decode.string
-        |> Decode.map EventId.parse
+        |> Decode.map (fun x -> EventId.parse x)
         |> Decode.andThen ofResult
 
     let xOnlyPubkey: Decoder<XOnlyPubKey> =
@@ -75,6 +91,9 @@ module Decode =
 
 
 module Encode =
+    let uri (uri : Uri) =
+        Encode.string (uri.ToString())
+
     let unixDateTime (date: DateTime) = Encode.uint32 (toUnixTime date)
 
     let eventId (EventId id) = Encode.string (toHex id)

@@ -37,18 +37,37 @@ module Option =
         | true, value -> Some value
         | _ -> None
 
+    let ofChoice = function
+        | Choice1Of2 v -> Some v
+        | _ -> None
+
 [<RequireQualifiedAccess>]
 module List =
     let ungroup lst =
-        List.collect (fun (k, vs) -> List.map (fun v -> k, v) vs) lst 
-        
+        List.collect (fun (k, vs) -> List.map (fun v -> k, v) vs) lst
+
+    let lift lst =
+        if List.contains None lst then
+            None
+        else
+            Some (List.map Option.get lst)
+
+
+[<RequireQualifiedAccess>]
+module Result =
+    let requiresOk = function
+        | Ok v -> v
+        | Error e -> failwith e
+
+    let ofChoice = function
+        | Choice1Of2 v -> Ok v
+        | Choice2Of2 e -> Error e
+
 module Monad =
     type Reader<'environment, 'a> = Reader of ('environment -> 'a)
 
     let injectedWith environment (Reader action) =
         action environment
-
-
 
 module ClientContext =
     type Reader<'a> = unit -> 'a
