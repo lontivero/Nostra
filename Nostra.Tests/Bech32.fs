@@ -81,8 +81,3 @@ type ``Nip19 Bech32-Shareable entities``(output:ITestOutputHelper) =
             | NEvent(EventId eventId, ["wss://nostr.mom"], Some ecxOnlyPubKeyOption, Some Kind.Text) ->
                 should equal (Utils.fromHex "08a193492c7fb27ab1d95f258461e4a0dfc7f52bccd5e022746cb28418ef4905") eventId
             | _ -> failwith "error"
-
-    [<Fact>]
-    let ``Enc`` () =
-        let event = encodeNote (EventId.parse "4211fc228be5af10923f56e60b1b11b8e63bf0ac7dbd3e1e3d767392fdaed4a4" |> Result.requiresOk)
-        true

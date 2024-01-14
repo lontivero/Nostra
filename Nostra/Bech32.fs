@@ -163,7 +163,7 @@ module Shareable =
                 |> Option.defaultValue []
             let encodedKind =
                 kind
-                |> Option.map (fun kind -> 3uy :: 4uy :: List.ofArray (Utils.toBE kind))
+                |> Option.map (fun kind -> 3uy :: 4uy :: List.ofArray (Utils.toBE (int kind)))
                 |> Option.defaultValue []
 
             [
@@ -227,7 +227,7 @@ module Shareable =
                                 |> Option.map XOnlyPubKey),
                             kinds
                             |> List.tryHead
-                            |> Option.map (List.toArray >> Utils.fromBE)
+                            |> Option.map (List.toArray >> Utils.fromBE >> LanguagePrimitives.EnumOfValue)
                         ))
                 | _ -> None
             | "nrelay" ->
