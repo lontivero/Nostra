@@ -4,6 +4,7 @@ open System
 open System.IO
 open System.Net.WebSockets
 open System.Text
+open System.Threading
 open Microsoft.FSharp.Collections
 open Microsoft.FSharp.Control
 open System.Buffers
@@ -49,7 +50,7 @@ module Client =
                     |> encodeOption "until" filter.Until Encode.unixDateTime
                     |> Encode.object
 
-            let singleton: SubscriptionFilter =
+            let all: SubscriptionFilter =
                 { Ids = []
                   Kinds = []
                   Authors = []
@@ -59,29 +60,30 @@ module Client =
                   Events = []
                   PubKeys = [] }
 
-            let notes = { singleton with Kinds = [Kind.Text] }
-            let metadata = { singleton with Kinds = [Kind.Metadata] }
-            let contacts = { singleton with Kinds = [Kind.Contacts] }
-            let encryptedMessages = { singleton with Kinds = [Kind.Encrypted] }
+            let notes filter = { filter with Kinds = [Kind.Text] }
+            let metadata filter = { filter with Kinds = [Kind.Metadata] }
+            let contacts filter = { filter with Kinds = [Kind.Contacts] }
+            let encryptedMessages filter = { filter with Kinds = [Kind.Encrypted] }
+            let channelCreation channels filter = { filter with Ids = channels }
 
             let events evnts filter =
                 { filter with
                     Events =
                        evnts
-                       |> List.map EventId.parse
-                       |> List.choose Result.toOption
                        |> List.append filter.Events
                        |> List.distinct }
 
             let authors authors (filter : SubscriptionFilter) =
-                let parseAuthor (author : string) = author |> Shareable.decodeNpub |> Option.orElseWith (fun () -> XOnlyPubKey.parse author |> Result.toOption)
                 { filter with
                     Authors =
                        authors
-                       |> List.map parseAuthor
-                       |> List.choose id
                        |> List.append filter.Authors
                        |> List.distinct }
+
+            let channels channels filter =
+                let filter' = events channels filter
+                { filter' with
+                    Kinds = Kind.ChannelMessage :: filter'.Kinds }
 
             let since dateTime filter =
                 { filter with Since = Some dateTime }
@@ -232,7 +234,9 @@ module Client =
         let pushToRelay = Monad.injectedWith ctx (Communication.sender ())
         let receiveLoop onReceiving = Monad.injectedWith ctx (Communication.startReceiving onReceiving)
         async {
-            do! ws.ConnectAsync (uri, Async.DefaultCancellationToken) |> Async.AwaitTask
+            use connectCancellationToken = new CancellationTokenSource(TimeSpan.FromSeconds(3))
+            let cts = CancellationTokenSource.CreateLinkedTokenSource(Async.DefaultCancellationToken, connectCancellationToken.Token)
+            do! ws.ConnectAsync (uri, cts.Token) |> Async.AwaitTask
 
             let subscribe sid filters = pushToRelay (ClientMessage.CMSubscribe (sid, filters))
             let publish event = pushToRelay (ClientMessage.CMEvent event)

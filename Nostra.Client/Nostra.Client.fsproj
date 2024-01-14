@@ -5,6 +5,8 @@
     </PropertyGroup>
 
     <ItemGroup>
+        <Compile Include="CommandLineParser.fs" />
+        <Compile Include="User.fs" />
         <Compile Include="Program.fs" />
         <Content Include="README.md" />
     </ItemGroup>
