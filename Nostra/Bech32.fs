@@ -120,13 +120,12 @@ module Shareable =
     open NBitcoin.Secp256k1
 
     type Relay = string
-    type Author = ECXOnlyPubKey
-    type Kind = int
+    type Author = XOnlyPubKey
     type ShareableEntity =
     | NSec of ECPrivKey
-    | NPub of ECXOnlyPubKey
+    | NPub of XOnlyPubKey
     | Note of EventId
-    | NProfile of ECXOnlyPubKey * Relay list
+    | NProfile of XOnlyPubKey * Relay list
     | NEvent of EventId * Relay list * Author option * Kind option
     | NRelay of Relay
 
@@ -138,12 +137,12 @@ module Shareable =
             let bytes = Array.create 32 0uy
             ecPrivKey.WriteToSpan bytes
             bytes |> _encode "nsec"
-        | NPub ecxOnlyPubKey ->
-            ecxOnlyPubKey.ToBytes() |> _encode "npub"
+        | NPub xOnlyPubKey ->
+            XOnlyPubKey.toBytes xOnlyPubKey |> _encode "npub"
         | Note(EventId eventId) ->
             eventId |> _encode "note"
-        | NProfile(ecxOnlyPubKey, relays) ->
-            let pubkey = ecxOnlyPubKey.ToBytes() |> Array.toList
+        | NProfile(xOnlyPubKey, relays) ->
+            let pubkey = XOnlyPubKey.toBytes xOnlyPubKey |> Array.toList
             let encodedPubKey = 0uy :: 32uy :: pubkey
             let encodedRelays =
                 relays
@@ -160,7 +159,7 @@ module Shareable =
                 |> List.concat
             let encodedAuthor =
                 author
-                |> Option.map (fun author -> 2uy :: 32uy :: List.ofArray (author.ToBytes()))
+                |> Option.map (fun author -> 2uy :: 32uy :: List.ofArray (XOnlyPubKey.toBytes author))
                 |> Option.defaultValue []
             let encodedKind =
                 kind
@@ -202,6 +201,7 @@ module Shareable =
             | "npub" ->
                 ECXOnlyPubKey.TryCreate byteArray
                 |> Option.ofTuple
+                |> Option.map XOnlyPubKey
                 |> Option.map NPub
             | "note" ->
                 Some (Note (EventId byteArray))
@@ -210,6 +210,7 @@ module Shareable =
                 | [[secKey]; relays; _; _] ->
                     ECXOnlyPubKey.TryCreate (secKey |> List.toArray)
                     |> Option.ofTuple
+                    |>  Option.map XOnlyPubKey
                     |> Option.map (fun key -> NProfile(key, relays |> List.map (List.toArray >> Encoding.ASCII.GetString)))
                 | _ -> None
             | "nevent" ->
@@ -222,7 +223,8 @@ module Shareable =
                             |> List.tryHead
                             |> Option.bind (fun author ->
                                 ECXOnlyPubKey.TryCreate (author |> List.toArray)
-                                |> Option.ofTuple),
+                                |> Option.ofTuple
+                                |> Option.map XOnlyPubKey),
                             kinds
                             |> List.tryHead
                             |> Option.map (List.toArray >> Utils.fromBE)
@@ -236,11 +238,17 @@ module Shareable =
             | _ -> None
             )
 
+    let encodeNpub xonlypubkey =
+        encode (NPub xonlypubkey)
+
     let decodeNpub str =
         decode str
         |> Option.bind (function
-            | NPub pk -> Some (XOnlyPubKey pk)
+            | NPub pk -> Some pk
             | _ ->  None)
+
+    let encodeNsec secret =
+        encode (NSec secret)
 
     let decodeNsec str =
         decode str
@@ -248,11 +256,17 @@ module Shareable =
             | NSec sk -> Some sk
             | _ ->  None)
 
+    let encodeNote note =
+        encode (Note note)
+
     let decodeNote str =
         decode str
         |> Option.bind (function
             | Note eventId -> Some eventId
             | _ ->  None)
+
+    let encodeNprofile profile =
+        encode (NProfile profile)
 
     let decodeNprofile str =
         decode str
@@ -260,11 +274,17 @@ module Shareable =
             | NProfile (pk, relays) -> Some (pk, relays)
             | _ ->  None)
 
+    let encodeNevent event =
+        encode (NEvent event)
+
     let decodeNevent str =
         decode str
         |> Option.bind (function
             | NEvent (eventId, relays, author, kind) -> Some (eventId, relays, author, kind)
             | _ ->  None)
+
+    let encodeNrelay relay =
+        encode (NRelay relay)
 
     let decodeNrelay str =
         decode str
