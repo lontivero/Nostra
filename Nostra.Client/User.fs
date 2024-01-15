@@ -18,6 +18,7 @@ type Channel = EventId
 
 type Metadata = {
     name : string
+    displayName : string option
     about : string option
     picture : string option
     nip05 : string option
@@ -73,6 +74,7 @@ module Metadata =
         let metadata : Decoder<Metadata> =
             Decode.object (fun get -> {
                 name = get.Required.Field "name" Decode.string
+                displayName = get.Optional.Field "display_name" Decode.string
                 picture = get.Optional.Field "picture" Decode.string
                 about = get.Optional.Field "about" Decode.string
                 nip05 = get.Optional.Field "nip05" Decode.string
@@ -91,7 +93,8 @@ module Metadata =
             let picture = getOptionalField metadata.picture "picture"
             let about = getOptionalField metadata.about "about"
             let nip05 = getOptionalField metadata.nip05 "nip05"
-            Encode.object (mandatoryFields @ picture @ about @ nip05)
+            let displayName = getOptionalField metadata.displayName "display_name"
+            Encode.object (mandatoryFields @ picture @ about @ displayName @ nip05)
 
 module Contact =
     open Author
@@ -115,12 +118,13 @@ module Contact =
 module User =
     open Metadata
 
-    let createUser name about picture nip05 =
+    let createUser name displayName about picture nip05 =
         let secret = Key.createNewRandom ()
         {
             secret = secret
             metadata = {
                 name = name
+                displayName = displayName
                 about = about
                 picture = picture
                 nip05 = nip05
@@ -171,8 +175,8 @@ module User =
 
         let secret secret =
             secret |> Shareable.encodeNsec |> Encode.string
-        let channel channel =
-            channel |> Shareable.encodeNote |> Encode.string
+        let channel =
+            Encode.eventId
 
         let user user =
             Encode.object [

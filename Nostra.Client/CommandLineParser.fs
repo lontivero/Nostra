@@ -23,6 +23,7 @@ module CommandLineParser =
         | CreateUser
         | RemoveUser
         | Name
+        | DisplayName
         | About
         | Picture
         | Nip05
@@ -50,6 +51,7 @@ module CommandLineParser =
                  | "--create-user" -> CreateUser
                  | "--remove-user" -> RemoveUser
                  | "--name" -> Name
+                 | "--display-name" -> DisplayName
                  | "--about" -> About
                  | "--nip05" -> Nip05
                  | "-p" | "--publish" -> Publish
@@ -99,6 +101,7 @@ module CommandLineParser =
         {|
             isCreateUser = fun () -> tryGet CreateUser opts |> Option.isSome
             getName = fun () -> tryGetFirst Name opts |> orAsk "Name"
+            getDisplayName = fun () -> tryGetFirst DisplayName opts
             getAbout = fun () -> tryGetFirst About opts
             getPicture = fun () -> tryGetFirst Picture opts
             getNip05 = fun () -> tryGetFirst Nip05 opts

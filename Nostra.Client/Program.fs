@@ -9,6 +9,8 @@ open Nostra.Client
 open Thoth.Json.Net
 
 let receivedEvents = HashSet<byte[]> ()
+let link text url =
+    $"\027]8;;{url}\a{text}\027]8;;\a"
 
 let displayResponse (contacts : Map<byte[], Contact>) (addContact: ContactKey -> Metadata -> unit) = function
     | Ok (Response.RMEvent ("channelmetadata", event)) ->
@@ -41,15 +43,19 @@ let displayResponse (contacts : Map<byte[], Contact>) (addContact: ContactKey ->
                 else
                     XOnlyPubKey.toBytes event.PubKey
             let maybeContact = contacts |> Map.tryFind contactKey
-            let author = maybeContact |> Option.map (_.metadata.name) |> Option.defaultValue (Utils.toHex contactKey)
+            let author = maybeContact
+                         |> Option.map (fun c -> c.metadata.displayName |> Option.defaultValue c.metadata.name)
+                         |> Option.defaultValue (Utils.toHex contactKey)
+            let authorNpub = Shareable.encodeNpub event.PubKey
             let nevent = Shareable.encodeNevent (event.Id, [], Some event.PubKey, Some event.Kind)
             let emoji = match event.Kind with
                         | Kind.Text -> "📄"
                         | Kind.ChannelMessage -> "📢"
                         | _ -> "🥑"
             Console.ForegroundColor <- ConsoleColor.Cyan
-            Console.WriteLine $"{emoji} 👤{author} 📅{event.CreatedAt}"
-            Console.WriteLine $"https://njump.me/{nevent}"
+            let eventLink = link emoji $"https://njump.me/{nevent}"
+            let authorLink= link $"👤 {author}" $"https://njump.me/{authorNpub}"
+            Console.WriteLine $"{eventLink} {authorLink} 📅 {event.CreatedAt}"
             Console.ForegroundColor <- enum<ConsoleColor> (-1)
             Console.WriteLine (event.Content.Trim())
             //Console.ForegroundColor <- ConsoleColor.DarkGray
@@ -104,6 +110,7 @@ let Main args =
     if opts.isCreateUser() then
         let user = User.createUser
                        (opts.getName())
+                       (opts.getDisplayName())
                        (opts.getAbout())
                        (opts.getPicture())
                        (opts.getNip05())
@@ -156,17 +163,23 @@ let Main args =
         let user = User.load userFilePath
         let filter =
             Filter.all
-            |> Filter.since (DateTime.Today.AddDays -58)
+            |> Filter.since (DateTime.Today.AddDays -40)
             |> Filter.limit 100
 
         let filterAuthors =
-            filter
-            |> Filter.notes
-            |> Filter.authors user.subscribedAuthors
+            match user.subscribedAuthors with
+            | [] -> None
+            | authors ->
+                filter
+                |> Filter.notes
+                |> Filter.authors authors
+                |> Some
 
         let filterChannels =
-            filter
-            |> Filter.channels user.subscribedChannels
+            match user.subscribedChannels with
+            | [] -> None
+            | channels ->
+                    Some (filter |> Filter.channels channels)
 
         let knownChannels =
             user.contacts
@@ -219,7 +232,10 @@ let Main args =
         let display = display contactMap addContact
         let connectSubscribeAndListen uri = async {
             let! relay = connectToRelay uri
-            relay.subscribe "all" [filterAuthors; filterChannels]
+            [filterAuthors; filterChannels]
+            |> List.choose id
+            |> relay.subscribe "all"
+
             filterMetadata
             |> Option.iter (fun filter -> relay.subscribe "metadata" [filter])
 
