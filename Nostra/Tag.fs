@@ -24,6 +24,10 @@ module Tag =
     let eventRefTag (EventId eventId) = Tag("e", [ toHex eventId ])
     let rootEventRefTag (EventId eventId) = Tag("e", [ toHex eventId; ""; "root" ])
 
+    let relayTag relay = Tag("r", relay)
+    let relayReadTag relayUri = relayTag [ relayUri; "read" ]
+    let relayWriteTag relayUri = relayTag [ relayUri; "write" ]
+
     open Thoth.Json.Net
 
     module Decode =

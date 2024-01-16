@@ -23,6 +23,7 @@ type Kind =
     | HideMessage = 43
     | MuteUser = 44
     | ReplaceableStart = 10_000
+    | RelayList = 10_002
     | ReplaceableEnd = 20_000
     | EphemeralStart = 20_000
     | EphemeralEnd = 30_000
@@ -41,7 +42,6 @@ type Event =
 [<RequireQualifiedAccess>]
 module Event =
     open Utils
-
 
     type UnsignedEvent =
         { CreatedAt: DateTime
@@ -105,6 +105,9 @@ module Event =
 
     let createProfileEvent (profile : Profile) =
         create Kind.Metadata [] (profile |> Profile.Encode.profile |> Encode.toCanonicalForm)
+
+    let createRelayListEvent relays =
+        create Kind.RelayList (relays |> List.map Tag.relayTag)
 
     let sharedKey (XOnlyPubKey he) (mySecret: ECPrivKey) =
         let ecPubKey = ReadOnlySpan(Array.insertAt 0 2uy (he.ToBytes()))
