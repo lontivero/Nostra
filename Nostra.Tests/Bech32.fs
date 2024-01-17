@@ -31,12 +31,12 @@ type ``Nip19 Bech32-Shareable entities``(output:ITestOutputHelper) =
     [<Fact>]
     let ``Encode/Decode npub`` () =
         let secKey = Key.createNewRandom()
-        let pubkey = XOnlyPubKey (Key.getPubKey secKey)
-        NPub pubkey
+        let author = Author (Key.getPubKey secKey)
+        NPub author
         |> encodeDecode
         |> function
         | NPub decodedPubKey ->
-            should equal (XOnlyPubKey.toBytes decodedPubKey) (XOnlyPubKey.toBytes pubkey)
+            should equal (Author.toBytes decodedPubKey) (Author.toBytes author)
         | _ -> failwith "The entity is not a npub"
 
     [<Fact>]
@@ -52,8 +52,8 @@ type ``Nip19 Bech32-Shareable entities``(output:ITestOutputHelper) =
     [<Fact>]
     let ``Encode/Decode nprofile`` () =
         let nprofile =
-            let pubkey = XOnlyPubKey.parse "3bf0c63fcb93463407af97a5e5ee64fa883d107ef9e558472c4eb9aaaefa459d" |> Result.requiresOk
-            NProfile(pubkey, [
+            let author = Author.parse "3bf0c63fcb93463407af97a5e5ee64fa883d107ef9e558472c4eb9aaaefa459d" |> Result.requiresOk
+            NProfile(author, [
                     "wss://r.x.com"
                     "wss://djbas.sadkb.com"
                 ])
@@ -73,7 +73,7 @@ type ``Nip19 Bech32-Shareable entities``(output:ITestOutputHelper) =
         NEvent(
             EventId (Utils.fromHex "08a193492c7fb27ab1d95f258461e4a0dfc7f52bccd5e022746cb28418ef4905"),
             ["wss://nostr.mom"],
-            Some (XOnlyPubKey.parse "fa984bd7dbb282f07e16e7ae87b26a2a7b9b90b7246a44771f0cf5ae58018f52" |> Result.requiresOk),
+            Some (Author.parse "fa984bd7dbb282f07e16e7ae87b26a2a7b9b90b7246a44771f0cf5ae58018f52" |> Result.requiresOk),
             Some Kind.Text
             )
         |> encodeDecode

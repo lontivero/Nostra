@@ -15,7 +15,7 @@ type ``Nip44 Payload encryption``(output:ITestOutputHelper) =
     let ``Basic example`` () =
         let me = Key.createNewRandom ()
         let you = Key.createNewRandom ()
-        let yourPk = you |> Key.getPubKey |> XOnlyPubKey
+        let yourPk = you |> Key.getPubKey |> Author
         let sharedKey = Event.sharedKey yourPk me
         let conversationKey = EncryptedPayload.conversationKey sharedKey
         let nonce = RandomNumberGenerator.GetBytes 32
@@ -37,7 +37,7 @@ type ``Nip44 Payload encryption``(output:ITestOutputHelper) =
         |> Seq.map (fun x ->
             [|
                x |> readHex "sec1" |> ECPrivKey.Create |> box
-               x |> readHex "pub2" |> ECXOnlyPubKey.Create |> XOnlyPubKey |> box
+               x |> readHex "pub2" |> ECXOnlyPubKey.Create |> Author |> box
                x |> readHex "conversation_key" |> box
             |])
 
@@ -77,7 +77,7 @@ type ``Nip44 Payload encryption``(output:ITestOutputHelper) =
 
     [<Theory>]
     [<MemberData(nameof(ConversationKeys))>]
-    let ``Conversation Key (valid)`` (sec1: ECPrivKey) (pub2 : XOnlyPubKey) (expectedConversationKey : byte[]) =
+    let ``Conversation Key (valid)`` (sec1: ECPrivKey) (pub2 : Author) (expectedConversationKey : byte[]) =
         let sharedKey = Event.sharedKey pub2 sec1
         let conversationKey = EncryptedPayload.conversationKey sharedKey
         should equal expectedConversationKey conversationKey
@@ -96,7 +96,7 @@ type ``Nip44 Payload encryption``(output:ITestOutputHelper) =
     [<Theory>]
     [<MemberData(nameof(EncryptDecrypts))>]
     let ``Encryption and decryption (valid)`` (sec1 : ECPrivKey) (sec2 : ECPrivKey) (expectedConversationKey : byte[]) (nonce : byte[]) (expectedPlainText : string) (expectedPayload : string) =
-        let sharedKey = Event.sharedKey (sec2 |> Key.getPubKey |> XOnlyPubKey) sec1
+        let sharedKey = Event.sharedKey (sec2 |> Key.getPubKey |> Author) sec1
         let conversationKey = EncryptedPayload.conversationKey sharedKey
         should equal expectedConversationKey conversationKey
         let payload = EncryptedPayload.encrypt conversationKey expectedPlainText nonce

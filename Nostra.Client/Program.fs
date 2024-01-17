@@ -41,7 +41,7 @@ let displayResponse (contacts : Map<byte[], Contact>) (addContact: ContactKey ->
 
                     EventId.toBytes eventId
                 else
-                    XOnlyPubKey.toBytes event.PubKey
+                    Author.toBytes event.PubKey
             let maybeContact = contacts |> Map.tryFind contactKey
             let author = maybeContact
                          |> Option.map (fun c -> c.metadata.displayName |> Option.defaultValue c.metadata.name)
@@ -154,7 +154,7 @@ let Main args =
             | Some [c] -> c, StdIn.read "Message"
             | Some (c::msgs) -> c, msgs |> List.head
 
-        let channel = Shareable.decodeNpub channel' |> Option.map (fun pubkey -> EventId (XOnlyPubKey.toBytes pubkey) ) |> Option.get
+        let channel = Shareable.decodeNpub channel' |> Option.map (fun pubkey -> EventId (Author.toBytes pubkey) ) |> Option.get
         let user = User.load userFilePath
         let event = Event.createChannelMessage channel message |> Event.sign user.secret
         publish event user.relays
@@ -207,7 +207,7 @@ let Main args =
 
         let unknownAuthors =
             user.subscribedAuthors
-            |> List.notInBy XOnlyPubKey.equals knownAuthors
+            |> List.notInBy Author.equals knownAuthors
 
         let filterMetadata =
             match unknownAuthors with
@@ -223,7 +223,7 @@ let Main args =
             |> List.map (fun c ->
                 (match c.key with
                  | Channel e -> EventId.toBytes e
-                 | Author p -> XOnlyPubKey.toBytes p)  , c )
+                 | Author p -> Author.toBytes p)  , c )
             |> Map.ofList
 
         let addContact contactKey metadata =

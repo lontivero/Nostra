@@ -8,7 +8,7 @@ open System.IO
 open Newtonsoft.Json
 
 type EventId = EventId of byte[]
-type XOnlyPubKey = XOnlyPubKey of ECXOnlyPubKey
+type Author = Author of ECXOnlyPubKey
 type ProfileName = string
 type SubscriptionId = string
 
@@ -16,16 +16,16 @@ type Uri_ = string
 type SchnorrSignature = SchnorrSignature of SecpSchnorrSignature
 type SerializedEvent = string
 
-module XOnlyPubKey =
+module Author =
     let parse = function
         | Base64 64 byteArray ->
             match (ECXOnlyPubKey.TryCreate byteArray) with
-            | true, pubkey -> Ok (XOnlyPubKey pubkey)
+            | true, author -> Ok (Author author)
             | _ -> Error "The byte array is not a valid xonly publick key."
         | invalid ->
-            Error $"XOnlyPubKey is invalid. The byte array is not 32 length but %i{invalid.Length / 2}"
+            Error $"Author is invalid. The byte array is not 32 length but %i{invalid.Length / 2}"
 
-    let toBytes (XOnlyPubKey ecpk) =
+    let toBytes (Author ecpk) =
         ecpk.ToBytes()
 
     let equals pk1 pk2 =
@@ -79,9 +79,9 @@ module Decode =
         |> Decode.map (fun x -> EventId.parse x)
         |> Decode.andThen ofResult
 
-    let xOnlyPubkey: Decoder<XOnlyPubKey> =
+    let author: Decoder<Author> =
         Decode.string
-        |> Decode.map XOnlyPubKey.parse
+        |> Decode.map Author.parse
         |> Decode.andThen ofResult
 
     let schnorrSignature: Decoder<SchnorrSignature> =
@@ -98,8 +98,8 @@ module Encode =
 
     let eventId (EventId id) = Encode.string (toHex id)
 
-    let xOnlyPubkey (XOnlyPubKey pubkey) =
-        Encode.string (toHex (pubkey.ToBytes()))
+    let author (Author author) =
+        Encode.string (toHex (author.ToBytes()))
 
     let schnorrSignature (SchnorrSignature signature) =
         Encode.string (toHex (signature.ToBytes()))

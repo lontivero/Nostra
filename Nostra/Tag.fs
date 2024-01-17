@@ -19,7 +19,7 @@ module Tag =
 
     let replyTag (EventId replyTo) uri = Tag("p", [ toHex replyTo; uri ])
 
-    let encryptedTo (XOnlyPubKey pubkey) = Tag("p", [ toHex (pubkey.ToBytes()) ])
+    let encryptedTo (Author pubkey) = Tag("p", [ toHex (pubkey.ToBytes()) ])
 
     let eventRefTag (EventId eventId) = Tag("e", [ toHex eventId ])
     let rootEventRefTag (EventId eventId) = Tag("e", [ toHex eventId; ""; "root" ])

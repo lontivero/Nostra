@@ -120,12 +120,11 @@ module Shareable =
     open NBitcoin.Secp256k1
 
     type Relay = string
-    type Author = XOnlyPubKey
     type ShareableEntity =
     | NSec of ECPrivKey
-    | NPub of XOnlyPubKey
+    | NPub of Author
     | Note of EventId
-    | NProfile of XOnlyPubKey * Relay list
+    | NProfile of Author * Relay list
     | NEvent of EventId * Relay list * Author option * Kind option
     | NRelay of Relay
 
@@ -137,13 +136,13 @@ module Shareable =
             let bytes = Array.create 32 0uy
             ecPrivKey.WriteToSpan bytes
             bytes |> _encode "nsec"
-        | NPub xOnlyPubKey ->
-            XOnlyPubKey.toBytes xOnlyPubKey |> _encode "npub"
+        | NPub author ->
+            Author.toBytes author |> _encode "npub"
         | Note(EventId eventId) ->
             eventId |> _encode "note"
-        | NProfile(xOnlyPubKey, relays) ->
-            let pubkey = XOnlyPubKey.toBytes xOnlyPubKey |> Array.toList
-            let encodedPubKey = 0uy :: 32uy :: pubkey
+        | NProfile(author, relays) ->
+            let author = Author.toBytes author |> Array.toList
+            let encodedPubKey = 0uy :: 32uy :: author
             let encodedRelays =
                 relays
                 |> List.map (Encoding.ASCII.GetBytes >> Array.toList)
@@ -159,7 +158,7 @@ module Shareable =
                 |> List.concat
             let encodedAuthor =
                 author
-                |> Option.map (fun author -> 2uy :: 32uy :: List.ofArray (XOnlyPubKey.toBytes author))
+                |> Option.map (fun author -> 2uy :: 32uy :: List.ofArray (Author.toBytes author))
                 |> Option.defaultValue []
             let encodedKind =
                 kind
@@ -201,7 +200,7 @@ module Shareable =
             | "npub" ->
                 ECXOnlyPubKey.TryCreate byteArray
                 |> Option.ofTuple
-                |> Option.map XOnlyPubKey
+                |> Option.map Author
                 |> Option.map NPub
             | "note" ->
                 Some (Note (EventId byteArray))
@@ -210,7 +209,7 @@ module Shareable =
                 | [[secKey]; relays; _; _] ->
                     ECXOnlyPubKey.TryCreate (secKey |> List.toArray)
                     |> Option.ofTuple
-                    |>  Option.map XOnlyPubKey
+                    |>  Option.map Author
                     |> Option.map (fun key -> NProfile(key, relays |> List.map (List.toArray >> Encoding.ASCII.GetString)))
                 | _ -> None
             | "nevent" ->
@@ -224,7 +223,7 @@ module Shareable =
                             |> Option.bind (fun author ->
                                 ECXOnlyPubKey.TryCreate (author |> List.toArray)
                                 |> Option.ofTuple
-                                |> Option.map XOnlyPubKey),
+                                |> Option.map Author),
                             kinds
                             |> List.tryHead
                             |> Option.map (List.toArray >> Utils.fromBE >> LanguagePrimitives.EnumOfValue)
@@ -238,8 +237,8 @@ module Shareable =
             | _ -> None
             )
 
-    let encodeNpub xonlypubkey =
-        encode (NPub xonlypubkey)
+    let encodeNpub author =
+        encode (NPub author)
 
     let decodeNpub str =
         decode str

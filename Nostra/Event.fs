@@ -32,7 +32,7 @@ type Kind =
 
 type Event =
     { Id: EventId
-      PubKey: XOnlyPubKey
+      PubKey: Author
       CreatedAt: DateTime
       Kind: Kind
       Tags: Tag list
@@ -54,7 +54,7 @@ module Event =
         let event: Decoder<Event> =
             Decode.object (fun get ->
                 { Id = get.Required.Field "id" Decode.eventId
-                  PubKey = get.Required.Field "pubkey" Decode.xOnlyPubkey
+                  PubKey = get.Required.Field "pubkey" Decode.author
                   CreatedAt = get.Required.Field "created_at" Decode.unixDateTime
                   Kind = get.Required.Field "kind" Decode.Enum.int
                   Tags = get.Required.Field "tags" Tag.Decode.tagList
@@ -65,18 +65,18 @@ module Event =
         let event (event: Event) =
             Encode.object
                 [ "id", Encode.eventId event.Id
-                  "pubkey", Encode.xOnlyPubkey event.PubKey
+                  "pubkey", Encode.author event.PubKey
                   "created_at", Encode.unixDateTime event.CreatedAt
                   "kind", Encode.Enum.int event.Kind
                   "tags", Tag.Encode.tagList event.Tags
                   "content", Encode.string event.Content
                   "sig", Encode.schnorrSignature event.Signature ]
 
-    let serializeForEventId (pubkey: XOnlyPubKey) (event: UnsignedEvent) =
+    let serializeForEventId (author: Author) (event: UnsignedEvent) =
         Encode.toCanonicalForm (
             Encode.list
                 [ Encode.int 0
-                  Encode.xOnlyPubkey pubkey
+                  Encode.author author
                   Encode.unixDateTime event.CreatedAt
                   Encode.Enum.int event.Kind
                   Tag.Encode.tagList event.Tags
@@ -109,13 +109,13 @@ module Event =
     let createRelayListEvent relays =
         create Kind.RelayList (relays |> List.map Tag.relayTag)
 
-    let sharedKey (XOnlyPubKey he) (mySecret: ECPrivKey) =
+    let sharedKey (Author he) (mySecret: ECPrivKey) =
         let ecPubKey = ReadOnlySpan(Array.insertAt 0 2uy (he.ToBytes()))
         let hisPubKey = ECPubKey.Create ecPubKey
         let sharedPubKey = hisPubKey.GetSharedPubkey(mySecret).ToBytes()
         sharedPubKey[1..]
 
-    let createEncryptedDirectMessage (recipient: XOnlyPubKey) (secret: ECPrivKey) content =
+    let createEncryptedDirectMessage (recipient: Author) (secret: ECPrivKey) content =
         let sharedPubKey = sharedKey recipient secret
         let iv, encryptedContent = Encryption.encrypt sharedPubKey content
 
@@ -136,15 +136,15 @@ module Event =
           Tags = event.Tags
           Content = event.Content }
 
-    let getEventId (pubkey: XOnlyPubKey) (event: UnsignedEvent) =
-        event |> serializeForEventId pubkey |> Encoding.UTF8.GetBytes |> SHA256.HashData
+    let getEventId (author: Author) (event: UnsignedEvent) =
+        event |> serializeForEventId author |> Encoding.UTF8.GetBytes |> SHA256.HashData
 
     let sign (secret: ECPrivKey) (event: UnsignedEvent) : Event =
-        let pubkey = secret |> Key.getPubKey |> XOnlyPubKey
-        let eventId = event |> getEventId pubkey
+        let author = secret |> Key.getPubKey |> Author
+        let eventId = event |> getEventId author
 
         { Id = EventId eventId
-          PubKey = pubkey
+          PubKey = author
           CreatedAt = event.CreatedAt
           Kind = event.Kind
           Tags = event.Tags
@@ -152,11 +152,11 @@ module Event =
           Signature = secret.SignBIP340 eventId |> SchnorrSignature }
 
     let verify (event: Event) =
-        let EventId id, XOnlyPubKey pubkey, SchnorrSignature signature =
+        let EventId id, Author author, SchnorrSignature signature =
             event.Id, event.PubKey, event.Signature
 
         let computedId = event |> toUnsignedEvent |> getEventId event.PubKey
-        computedId = id && pubkey.SigVerifyBIP340(signature, id)
+        computedId = id && author.SigVerifyBIP340(signature, id)
 
     let isEphemeral (event: Event) =
         event.Kind >= Kind.EphemeralStart &&
@@ -174,9 +174,9 @@ module Event =
 
     let expirationUnixDateTime (event: Event) =
         event.Tags
-        |> List.ungroup
-        |> List.tryFind (fun (tagName, _) -> tagName = "expiration")
-        |> Option.bind (fun (_, expirationTagValue) -> expirationTagValue |> Int32.TryParse |> Option.ofTuple)
+        |> Tag.findByKey "expiration"
+        |> List.tryHead
+        |> Option.bind (Int32.TryParse >> Option.ofTuple)
 
     let isExpired (event: Event) (datetime: DateTime) =
         event

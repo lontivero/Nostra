@@ -13,7 +13,6 @@ module List =
         |> List.filter (fun i1 -> not (List.exists (predicate i1) list2))
 
 
-type Author = XOnlyPubKey
 type Channel = EventId
 
 type Metadata = {
@@ -28,7 +27,7 @@ type Relay = {
     proxy : Uri Option
 }
 type ContactKey =
-    | Author of XOnlyPubKey
+    | Author of Author
     | Channel of Channel
 
 type Contact = {
@@ -46,27 +45,27 @@ type User = {
 
 module Author =
     module Decode =
-        let author : Decoder<Author> =
+        let shareableAuthor : Decoder<Author> =
             Decode.string
             |> Decode.map Shareable.decodeNpub
             |> Decode.andThen (Decode.ofOption "Not a valid bech32 author")
 
     module Encode =
-        let author pubkey =
-            pubkey |> Shareable.encodeNpub |> Encode.string
+        let shareableAuthor author =
+            author |> Shareable.encodeNpub |> Encode.string
 
 module ContactKey =
     open Author
     module Encode =
         let contactKey = function
-            | Author author -> Encode.author author
+            | Author author -> Encode.shareableAuthor author
             | Channel channel -> Encode.eventId channel
 
     module Decode =
         let contactKey : Decoder<ContactKey> =
             Decode.oneOf [
                 Decode.eventId |> Decode.map ContactKey.Channel
-                Decode.author |> Decode.map ContactKey.Author
+                Decode.shareableAuthor |> Decode.map ContactKey.Author
             ]
 
 module Metadata =
@@ -159,7 +158,7 @@ module User =
                 metadata = get.Required.Field "metadata" Decode.metadata
                 relays = get.Required.Field "relays" (Decode.list relay)
                 contacts = get.Required.Field "contacts" (Decode.list Decode.contact)
-                subscribedAuthors = get.Required.Field "subscribed_authors" (Decode.list Decode.author)
+                subscribedAuthors = get.Required.Field "subscribed_authors" (Decode.list Decode.shareableAuthor)
                 subscribedChannels = get.Required.Field "subscribed_channels" (Decode.list channel)
             })
 
@@ -184,7 +183,7 @@ module User =
                 "metadata", Encode.metadata user.metadata
                 "relays", Encode.list (List.map relay user.relays)
                 "contacts", Encode.list (List.map Encode.contact user.contacts)
-                "subscribed_authors", Encode.list (List.map Encode.author user.subscribedAuthors)
+                "subscribed_authors", Encode.list (List.map Encode.shareableAuthor user.subscribedAuthors)
                 "subscribed_channels", Encode.list (List.map channel user.subscribedChannels)
             ]
 
@@ -212,12 +211,12 @@ module User =
         { user with contacts = List.distinctBy (fun c -> c.key) contacts }
 
     let subscribeAuthors (authors : Author list) user =
-        let authors' = List.distinctBy XOnlyPubKey.toBytes (user.subscribedAuthors @ authors)
+        let authors' = List.distinctBy Author.toBytes (user.subscribedAuthors @ authors)
         { user with subscribedAuthors = authors' }
 
     let unsubscribeAuthors (authors : Author list) user =
         let authors' = user.subscribedAuthors
-                       |> List.notInBy (fun a1 a2 -> XOnlyPubKey.toBytes a1 = XOnlyPubKey.toBytes a2) authors
+                       |> List.notInBy (fun a1 a2 -> Author.toBytes a1 = Author.toBytes a2) authors
         { user with subscribedAuthors = authors' }
 
     let subscribeChannels (channels : Channel list) user =

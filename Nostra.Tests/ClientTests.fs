@@ -34,8 +34,8 @@ type ``Client tests``(output:ITestOutputHelper, fixture: EchoServerFixture) =
     let ``Can receive encrypted messages`` () = async {
         let! send, receive = Client.createClient fixture.Port
         let secret = Key.createNewRandom ()
-        let pubkey = Key.getPubKey secret |> XOnlyPubKey
-        let event = Event.createEncryptedDirectMessage pubkey secret "hello" |> Event.sign secret
+        let author = Key.getPubKey secret |> Author
+        let event = Event.createEncryptedDirectMessage author secret "hello" |> Event.sign secret
         do! send (createRelayMessage "sid" (Event.serialize event))
 
         event.Content |> should not' (equal "hello", "The note is not encrypted")
