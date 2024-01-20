@@ -27,7 +27,7 @@ type Relay = {
     proxy : Uri Option
 }
 type ContactKey =
-    | Author of Author
+    | Author of AuthorId
     | Channel of Channel
 
 type Contact = {
@@ -35,17 +35,17 @@ type Contact = {
     metadata : Metadata
 }
 type User = {
-    secret : ECPrivKey
+    secret : SecretKey
     metadata : Metadata
     relays : Relay list
     contacts : Contact list
-    subscribedAuthors : Author list
+    subscribedAuthors : AuthorId list
     subscribedChannels : Channel list
 }
 
 module Author =
     module Decode =
-        let shareableAuthor : Decoder<Author> =
+        let shareableAuthor : Decoder<AuthorId> =
             Decode.string
             |> Decode.map Shareable.decodeNpub
             |> Decode.andThen (Decode.ofOption "Not a valid bech32 author")
@@ -96,7 +96,6 @@ module Metadata =
             Encode.object (mandatoryFields @ picture @ about @ displayName @ nip05)
 
 module Contact =
-    open Author
     open Metadata
     open ContactKey
 
@@ -118,7 +117,7 @@ module User =
     open Metadata
 
     let createUser name displayName about picture nip05 =
-        let secret = Key.createNewRandom ()
+        let secret = SecretKey.createNewRandom ()
         {
             secret = secret
             metadata = {
@@ -144,7 +143,7 @@ module User =
                 proxy = get.Optional.Field "proxy" Decode.uri
             })
 
-        let secret : Decoder<ECPrivKey> =
+        let secret : Decoder<SecretKey> =
             Decode.string
             |> Decode.map Shareable.decodeNsec
             |> Decode.andThen (Decode.ofOption "Not a valid bech32 secret")
@@ -210,11 +209,11 @@ module User =
         let contacts = { key = key; metadata = metadata }:: user.contacts
         { user with contacts = List.distinctBy (fun c -> c.key) contacts }
 
-    let subscribeAuthors (authors : Author list) user =
+    let subscribeAuthors (authors : AuthorId list) user =
         let authors' = List.distinctBy Author.toBytes (user.subscribedAuthors @ authors)
         { user with subscribedAuthors = authors' }
 
-    let unsubscribeAuthors (authors : Author list) user =
+    let unsubscribeAuthors (authors : AuthorId list) user =
         let authors' = user.subscribedAuthors
                        |> List.notInBy (fun a1 a2 -> Author.toBytes a1 = Author.toBytes a2) authors
         { user with subscribedAuthors = authors' }

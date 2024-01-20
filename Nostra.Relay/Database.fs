@@ -166,7 +166,7 @@ let handleParameterizedReplacement connection author kind createdAt dtag=
 let saveEvent connection (preprocessedEvent: StoredEvent) = asyncResult {
     let event = preprocessedEvent.Event
     let (EventId eventId) = event.Id
-    let (Author author) = event.PubKey
+    let (AuthorId author) = event.PubKey
     let author = author.ToBytes()
     let kind = int event.Kind
     let createdAt = event.CreatedAt
@@ -180,7 +180,7 @@ let saveEvent connection (preprocessedEvent: StoredEvent) = asyncResult {
     return! save connection eventId author preprocessedEvent |> AsyncResult.ignore
 }
 
-let deleteEvents connection (Author author) eventIds =
+let deleteEvents connection (AuthorId author) eventIds =
     let eventIdsParameters = String.Join(",", eventIds |> List.mapi (fun i _ -> $"@event_hash{i}"))
     connection
     |> Sql.executeTransactionAsync [

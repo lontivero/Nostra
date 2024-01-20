@@ -16,12 +16,12 @@ module Client =
     type SubscriptionFilter =
         { Ids: EventId list
           Kinds: Kind list
-          Authors: Author list
+          Authors: AuthorId list
           Limit: int option
           Since: DateTime option
           Until: DateTime option
           Events: EventId list
-          PubKeys: Author list }
+          PubKeys: AuthorId list }
 
     module Request =
         [<RequireQualifiedAccess>]

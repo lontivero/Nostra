@@ -4,7 +4,7 @@ open Nostra
 open Nostra.Relay
 
 type EventSaver = StoredEvent -> Async<Result<unit, exn>>
-type EventsDeleter = Author -> string list -> Async<Result<int list, exn>>
+type EventsDeleter = AuthorId -> string list -> Async<Result<int list, exn>>
 type EventsFetcher = Request.Filter list -> System.DateTime -> Async<Result<SerializedEvent list, exn>>
 
 type EventStore = {

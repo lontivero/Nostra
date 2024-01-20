@@ -121,18 +121,18 @@ module Shareable =
 
     type Relay = string
     type ShareableEntity =
-    | NSec of ECPrivKey
-    | NPub of Author
+    | NSec of SecretKey
+    | NPub of AuthorId
     | Note of EventId
-    | NProfile of Author * Relay list
-    | NEvent of EventId * Relay list * Author option * Kind option
+    | NProfile of AuthorId * Relay list
+    | NEvent of EventId * Relay list * AuthorId option * Kind option
     | NRelay of Relay
 
     let private _encode hrp bytesArr =
         Bech32.encode hrp (bytesArr |> Array.toList)
 
     let encode = function
-        | NSec ecPrivKey ->
+        | NSec (SecretKey ecPrivKey) ->
             let bytes = Array.create 32 0uy
             ecPrivKey.WriteToSpan bytes
             bytes |> _encode "nsec"
@@ -196,11 +196,12 @@ module Shareable =
             | "nsec" ->
                 ECPrivKey.TryCreate byteArray
                 |> Option.ofTuple
+                |> Option.map SecretKey
                 |> Option.map NSec
             | "npub" ->
                 ECXOnlyPubKey.TryCreate byteArray
                 |> Option.ofTuple
-                |> Option.map Author
+                |> Option.map AuthorId
                 |> Option.map NPub
             | "note" ->
                 Some (Note (EventId byteArray))
@@ -209,7 +210,7 @@ module Shareable =
                 | [[secKey]; relays; _; _] ->
                     ECXOnlyPubKey.TryCreate (secKey |> List.toArray)
                     |> Option.ofTuple
-                    |>  Option.map Author
+                    |>  Option.map AuthorId
                     |> Option.map (fun key -> NProfile(key, relays |> List.map (List.toArray >> Encoding.ASCII.GetString)))
                 | _ -> None
             | "nevent" ->
@@ -223,7 +224,7 @@ module Shareable =
                             |> Option.bind (fun author ->
                                 ECXOnlyPubKey.TryCreate (author |> List.toArray)
                                 |> Option.ofTuple
-                                |> Option.map Author),
+                                |> Option.map AuthorId),
                             kinds
                             |> List.tryHead
                             |> Option.map (List.toArray >> Utils.fromBE >> LanguagePrimitives.EnumOfValue)

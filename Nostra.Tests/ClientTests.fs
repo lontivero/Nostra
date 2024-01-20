@@ -33,8 +33,8 @@ type ``Client tests``(output:ITestOutputHelper, fixture: EchoServerFixture) =
     [<Fact>]
     let ``Can receive encrypted messages`` () = async {
         let! send, receive = Client.createClient fixture.Port
-        let secret = Key.createNewRandom ()
-        let author = Key.getPubKey secret |> Author
+        let secret = SecretKey.createNewRandom ()
+        let author = SecretKey.getPubKey secret
         let event = Event.createEncryptedDirectMessage author secret "hello" |> Event.sign secret
         do! send (createRelayMessage "sid" (Event.serialize event))
 
@@ -50,7 +50,7 @@ type ``Client tests``(output:ITestOutputHelper, fixture: EchoServerFixture) =
     [<Fact>]
     let ``Can receive a valid event from relay`` () = async {
         let! send, receive = Client.createClient fixture.Port
-        let event = Event.createNote "Welcome" |> Event.sign (Key.createNewRandom())
+        let event = Event.createNote "Welcome" |> Event.sign (SecretKey.createNewRandom())
         do! send (createRelayMessage "sid" (Event.serialize event))
 
         let! msg = receive
@@ -62,7 +62,7 @@ type ``Client tests``(output:ITestOutputHelper, fixture: EchoServerFixture) =
     [<Fact>]
     let ``Can detect invalid (non-authentic) events`` () = async {
         let! send, receive = Client.createClient fixture.Port
-        let event = Event.createNote "Welcome" |> Event.sign (Key.createNewRandom())
+        let event = Event.createNote "Welcome" |> Event.sign (SecretKey.createNewRandom())
         let modifiedEvent = { event with Content = event.Content.Replace("Welcome","Bienvenido") }
         let serializedModifiedEvent = modifiedEvent |> Event.serialize
         do! send (createRelayMessage "sid" serializedModifiedEvent)

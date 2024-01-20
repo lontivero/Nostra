@@ -33,7 +33,7 @@ type ``Relay Accept Events``(output:ITestOutputHelper, fixture:RelayFixture) =
     [<Fact>]
     let ``Can receive a valid event from relay`` () = async {
         let! send, receive = Client.createClient fixture.Port
-        let event = Event.createNote "Welcome" |> Event.sign (Key.createNewRandom())
+        let event = Event.createNote "Welcome" |> Event.sign (SecretKey.createNewRandom())
         do! send $"""["EVENT",{Event.serialize event}]"""
 
         let! msg = receive
@@ -45,7 +45,7 @@ type ``Relay Accept Events``(output:ITestOutputHelper, fixture:RelayFixture) =
     [<Fact>]
     let ``Can detect invalid (non-authentic) events`` () = async {
         let! send, receive = Client.createClient fixture.Port
-        let event = Event.createNote "Welcome" |> Event.sign (Key.createNewRandom())
+        let event = Event.createNote "Welcome" |> Event.sign (SecretKey.createNewRandom())
         let modifiedEvent = { event with Content = event.Content.Replace("Welcome","Bienvenido") }
         let serializedModifiedEvent = modifiedEvent |> Event.serialize
         do! send ("""["EVENT",""" + serializedModifiedEvent + "]")

@@ -20,7 +20,7 @@ type ``Nip19 Bech32-Shareable entities``(output:ITestOutputHelper) =
 
     [<Fact>]
     let ``Encode/Decode nsec`` () =
-        let secKey = Key.createNewRandom()
+        let secKey = SecretKey.createNewRandom()
         NSec secKey
         |> encodeDecode
         |> function
@@ -30,8 +30,8 @@ type ``Nip19 Bech32-Shareable entities``(output:ITestOutputHelper) =
 
     [<Fact>]
     let ``Encode/Decode npub`` () =
-        let secKey = Key.createNewRandom()
-        let author = Author (Key.getPubKey secKey)
+        let secKey = SecretKey.createNewRandom()
+        let author = SecretKey.getPubKey secKey
         NPub author
         |> encodeDecode
         |> function
