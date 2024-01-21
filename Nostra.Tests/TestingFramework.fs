@@ -17,7 +17,7 @@ type Connection = {
 type User = {
     SentEvents : Event ResizeArray
     ReceivedEvents : Event ResizeArray
-    Secret : ECPrivKey
+    Secret : SecretKey
     Connection : Connection option
 }
 
@@ -46,7 +46,7 @@ let ``given`` user : TestStep =
     fun ctx ->
         let alreadyExists, knownUser = ctx.Users.TryGetValue(user)
         if not alreadyExists then
-            let secret = Key.createNewRandom ()
+            let secret = SecretKey.createNewRandom ()
             ctx.Users.Add (user, { Secret = secret; SentEvents = ResizeArray<Event>(); ReceivedEvents = ResizeArray<Event>(); Connection = None })
         async { return { ctx with CurrentUser = user } }
 
@@ -120,8 +120,8 @@ let latest n : FilterFactory =
 let eventsFrom who : FilterFactory =
     fun ctx ->
         let user = ctx.Users[who]
-        let pubkey = user.Secret |> Key.getPubKey |> fun x -> x.ToBytes() |> Utils.toHex
-        $"""{{"authors": ["{pubkey}"]}}"""
+        let author = user.Secret |> SecretKey.getPubKey |> fun x -> Author.toBytes x |> Utils.toHex
+        $"""{{"authors": ["{author}"]}}"""
 
 let ``send event`` eventFactory : TestStep =
     fun ctx -> async {

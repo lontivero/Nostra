@@ -16,12 +16,12 @@ module Client =
     type SubscriptionFilter =
         { Ids: EventId list
           Kinds: Kind list
-          Authors: XOnlyPubKey list
+          Authors: AuthorId list
           Limit: int option
           Since: DateTime option
           Until: DateTime option
           Events: EventId list
-          PubKeys: XOnlyPubKey list }
+          PubKeys: AuthorId list }
 
     module Request =
         [<RequireQualifiedAccess>]
@@ -42,9 +42,9 @@ module Client =
                     []
                     |> encodeList "ids" filter.Ids Encode.eventId
                     |> encodeList "kinds" filter.Kinds Encode.Enum.int
-                    |> encodeList "authors" filter.Authors Encode.xOnlyPubkey
+                    |> encodeList "authors" filter.Authors Encode.author
                     |> encodeList "#e" filter.Events Encode.eventId
-                    |> encodeList "#p" filter.PubKeys Encode.xOnlyPubkey
+                    |> encodeList "#p" filter.PubKeys Encode.author
                     |> encodeOption "limit" filter.Limit Encode.int
                     |> encodeOption "since" filter.Since Encode.unixDateTime
                     |> encodeOption "until" filter.Until Encode.unixDateTime

@@ -25,8 +25,8 @@ type EventProcessingError =
 
 let preprocessEvent (event : Event) serializedEvent =
     let (EventId eventId) = event.Id
-    let (XOnlyPubKey xOnlyPubkey) = event.PubKey
-    let pubkey = xOnlyPubkey.ToBytes()
+    let (AuthorId author) = event.PubKey
+    let pubkey = author.ToBytes()
 
     {
         Event = event
