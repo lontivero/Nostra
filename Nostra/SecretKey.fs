@@ -4,10 +4,12 @@ open System
 open System.Security.Cryptography
 open NBitcoin.Secp256k1
 
+[<CompiledName("SecretKeyT")>]
 type SecretKey = SecretKey of ECPrivKey
 
 [<RequireQualifiedAccess>]
 module SecretKey =
+    [<CompiledName("CreateRandom")>]
     let createNewRandom () =
         fun _ -> ECPrivKey.TryCreate(ReadOnlySpan(RandomNumberGenerator.GetBytes(32)))
         |> Seq.initInfinite

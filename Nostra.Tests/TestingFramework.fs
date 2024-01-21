@@ -120,7 +120,7 @@ let latest n : FilterFactory =
 let eventsFrom who : FilterFactory =
     fun ctx ->
         let user = ctx.Users[who]
-        let author = user.Secret |> SecretKey.getPubKey |> fun x -> Author.toBytes x |> Utils.toHex
+        let author = user.Secret |> SecretKey.getPubKey |> fun x -> AuthorId.toBytes x |> Utils.toHex
         $"""{{"authors": ["{author}"]}}"""
 
 let ``send event`` eventFactory : TestStep =

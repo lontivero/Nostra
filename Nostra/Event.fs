@@ -7,7 +7,7 @@ open Microsoft.FSharp.Core
 open NBitcoin.Secp256k1
 open Thoth.Json.Net
 
-
+[<Struct>]
 type Kind =
     | Metadata = 0
     | Text = 1
@@ -30,6 +30,7 @@ type Kind =
     | ParameterizableReplaceableStart = 30_000
     | ParameterizableReplaceableEnd = 40_000
 
+[<CompiledName("EventT")>]
 type Event =
     { Id: EventId
       PubKey: AuthorId
@@ -39,6 +40,7 @@ type Event =
       Content: string
       Signature: SchnorrSignature }
 
+[<CompiledName("Event")>]
 [<RequireQualifiedAccess>]
 module Event =
     open Utils
@@ -54,7 +56,7 @@ module Event =
         let event: Decoder<Event> =
             Decode.object (fun get ->
                 { Id = get.Required.Field "id" Decode.eventId
-                  PubKey = get.Required.Field "pubkey" Decode.author
+                  PubKey = get.Required.Field "pubkey" Decode.authorId
                   CreatedAt = get.Required.Field "created_at" Decode.unixDateTime
                   Kind = get.Required.Field "kind" Decode.Enum.int
                   Tags = get.Required.Field "tags" Tag.Decode.tagList
@@ -65,7 +67,7 @@ module Event =
         let event (event: Event) =
             Encode.object
                 [ "id", Encode.eventId event.Id
-                  "pubkey", Encode.author event.PubKey
+                  "pubkey", Encode.authorId event.PubKey
                   "created_at", Encode.unixDateTime event.CreatedAt
                   "kind", Encode.Enum.int event.Kind
                   "tags", Tag.Encode.tagList event.Tags
@@ -76,36 +78,43 @@ module Event =
         Encode.toCanonicalForm (
             Encode.list
                 [ Encode.int 0
-                  Encode.author author
+                  Encode.authorId author
                   Encode.unixDateTime event.CreatedAt
                   Encode.Enum.int event.Kind
                   Tag.Encode.tagList event.Tags
                   Encode.string event.Content ]
         )
 
+    [<CompiledName("Serialize")>]
     let serialize event =
         event |> Encode.event |> Encode.toCanonicalForm
 
+    [<CompiledName("Create")>]
     let create kind tags content =
         { CreatedAt = DateTime.UtcNow
           Kind = kind
-          Tags = tags
+          Tags = tags |> Seq.toList
           Content = content }
 
+    [<CompiledName("CreateNote")>]
     let createNote content = create Kind.Text [] content
 
     let createContactsEvent contacts =
         create Kind.Contacts (contacts |> List.map Tag.authorTag) ""
 
+    [<CompiledName("CreateReply")>]
     let createReplyEvent (replyTo: EventId) content =
         create Kind.Text [ Tag.replyTag replyTo "" ] content
 
+    [<CompiledName("CreateChannel")>]
     let createChannelMessage (replyTo: EventId) content =
         create Kind.ChannelMessage [ Tag.rootEventRefTag replyTo ] content
 
+    [<CompiledName("CreateDelete")>]
     let createDeleteEvent (ids: EventId list) content =
         create Kind.Delete (ids |> List.map  Tag.eventRefTag) content
 
+    [<CompiledName("CreateProfile")>]
     let createProfileEvent (profile : Profile) =
         create Kind.Metadata [] (profile |> Profile.Encode.profile |> Encode.toCanonicalForm)
 
@@ -142,10 +151,10 @@ module Event =
     let getEventId (author: AuthorId) (event: UnsignedEvent) =
         event |> serializeForEventId author |> Encoding.UTF8.GetBytes |> SHA256.HashData
 
+    [<CompiledName("Sign")>]
     let sign (secret: SecretKey) (event: UnsignedEvent) : Event =
         let author = secret |> SecretKey.getPubKey
         let eventId = event |> getEventId author
-
         { Id = EventId eventId
           PubKey = author
           CreatedAt = event.CreatedAt
@@ -154,6 +163,7 @@ module Event =
           Content = event.Content
           Signature = SecretKey.sign eventId secret |> SchnorrSignature }
 
+    [<CompiledName("Verify")>]
     let verify (event: Event) =
         let EventId id, AuthorId author, SchnorrSignature signature =
             event.Id, event.PubKey, event.Signature

@@ -137,11 +137,11 @@ module Shareable =
             ecPrivKey.WriteToSpan bytes
             bytes |> _encode "nsec"
         | NPub author ->
-            Author.toBytes author |> _encode "npub"
+            AuthorId.toBytes author |> _encode "npub"
         | Note(EventId eventId) ->
             eventId |> _encode "note"
         | NProfile(author, relays) ->
-            let author = Author.toBytes author |> Array.toList
+            let author = AuthorId.toBytes author |> Array.toList
             let encodedPubKey = 0uy :: 32uy :: author
             let encodedRelays =
                 relays
@@ -158,7 +158,7 @@ module Shareable =
                 |> List.concat
             let encodedAuthor =
                 author
-                |> Option.map (fun author -> 2uy :: 32uy :: List.ofArray (Author.toBytes author))
+                |> Option.map (fun author -> 2uy :: 32uy :: List.ofArray (AuthorId.toBytes author))
                 |> Option.defaultValue []
             let encodedKind =
                 kind
@@ -238,6 +238,7 @@ module Shareable =
             | _ -> None
             )
 
+    [<CompiledName("ToNPub")>]
     let encodeNpub author =
         encode (NPub author)
 
@@ -247,6 +248,10 @@ module Shareable =
             | NPub pk -> Some pk
             | _ ->  None)
 
+    [<CompiledName("FromNPub")>]
+    let _decodeNpub = decodeNpub >> Option.get
+
+    [<CompiledName("ToNSec")>]
     let encodeNsec secret =
         encode (NSec secret)
 
@@ -256,6 +261,10 @@ module Shareable =
             | NSec sk -> Some sk
             | _ ->  None)
 
+    [<CompiledName("FromNSec")>]
+    let _decodeNsec = decodeNsec >> Option.get
+
+    [<CompiledName("ToNote")>]
     let encodeNote note =
         encode (Note note)
 
@@ -265,6 +274,10 @@ module Shareable =
             | Note eventId -> Some eventId
             | _ ->  None)
 
+    [<CompiledName("FromNote")>]
+    let _decodeNote = decodeNote >> Option.get
+
+    [<CompiledName("ToNProfile")>]
     let encodeNprofile profile =
         encode (NProfile profile)
 
@@ -274,6 +287,10 @@ module Shareable =
             | NProfile (pk, relays) -> Some (pk, relays)
             | _ ->  None)
 
+    [<CompiledName("FromNProfile")>]
+    let _decodeNprofile = decodeNprofile >> Option.get
+
+    [<CompiledName("ToNEvent")>]
     let encodeNevent event =
         encode (NEvent event)
 
@@ -283,6 +300,10 @@ module Shareable =
             | NEvent (eventId, relays, author, kind) -> Some (eventId, relays, author, kind)
             | _ ->  None)
 
+    [<CompiledName("FromNEvent")>]
+    let _decodeNevent = decodeNevent >> Option.get
+
+    [<CompiledName("ToNRelay")>]
     let encodeNrelay relay =
         encode (NRelay relay)
 
@@ -291,3 +312,6 @@ module Shareable =
         |> Option.bind (function
             | NRelay relays -> Some relays
             | _ ->  None)
+
+    [<CompiledName("FromNRelay")>]
+    let _decodeNrelay = decodeNrelay >> Option.get

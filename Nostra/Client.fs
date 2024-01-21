@@ -42,9 +42,9 @@ module Client =
                     []
                     |> encodeList "ids" filter.Ids Encode.eventId
                     |> encodeList "kinds" filter.Kinds Encode.Enum.int
-                    |> encodeList "authors" filter.Authors Encode.author
+                    |> encodeList "authors" filter.Authors Encode.authorId
                     |> encodeList "#e" filter.Events Encode.eventId
-                    |> encodeList "#p" filter.PubKeys Encode.author
+                    |> encodeList "#p" filter.PubKeys Encode.authorId
                     |> encodeOption "limit" filter.Limit Encode.int
                     |> encodeOption "since" filter.Since Encode.unixDateTime
                     |> encodeOption "until" filter.Until Encode.unixDateTime
@@ -122,6 +122,27 @@ module Client =
             | RMNotice of string
             | RMACK of EventId * bool * string
             | RMEOSE of string
+
+        // Functions for interoperability with C#
+        [<CompiledName("GetEvent")>]
+        let getEvent = function
+            | RMEvent(sid, evnt) -> sid, evnt
+            | _ -> failwith "Not an event relay message"
+
+        [<CompiledName("GetNotice")>]
+        let getNotice = function
+            | RMNotice str -> str
+            | _ -> failwith "Not a notice relay message"
+
+        [<CompiledName("GetAck")>]
+        let getAck = function
+            | RMACK(eventId, success, str) -> eventId, success, str
+            | _ -> failwith "Not an acknowledge relay message"
+
+        [<CompiledName("GetEOSE")>]
+        let getEOSE = function
+            | RMEOSE str -> str
+            | _ -> failwith "Not an end-of-stream relay message"
 
         module Decode =
             let relayMessage: Decoder<RelayMessage> =
@@ -228,6 +249,19 @@ module Client =
                 }
             }
 
+    type RelayConnection = {
+        publish: Event -> unit
+        subscribe: SubscriptionId -> SubscriptionFilter list -> unit
+        startListening: (Result<RelayMessage,string> -> unit) -> Async<unit>
+    }
+
+    [<CompiledName "Publish">]
+    let publish event relay = relay.publish event
+    [<CompiledName "Subscribe">]
+    let subscribe subscriptionId filterList relay = relay.subscribe subscriptionId filterList
+    [<CompiledName "StartListening">]
+    let startListening callback relay = relay.startListening callback |> Async.StartAsTask
+
     let connectToRelay uri =
         let ws = new ClientWebSocket()
         let ctx = Communication.buildContext ws Console.Out
@@ -241,11 +275,11 @@ module Client =
             let subscribe sid filters = pushToRelay (ClientMessage.CMSubscribe (sid, filters))
             let publish event = pushToRelay (ClientMessage.CMEvent event)
 
-            return {|
+            return {
                 publish = publish
                 subscribe = subscribe
                 startListening = receiveLoop
-            |}
+            }
         }
 
 

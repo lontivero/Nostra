@@ -2,6 +2,7 @@ namespace Nostra
 
 open Thoth.Json.Net
 
+[<CompiledName("ProfileT")>]
 type Profile =
     { Name : string
       About : string
