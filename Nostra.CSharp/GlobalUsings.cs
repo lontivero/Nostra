@@ -1,0 +1,10 @@
+global using Microsoft.FSharp.Collections;
+global using Microsoft.FSharp.Core;
+global using static Microsoft.FSharp.Core.FSharpOption<Nostra.AuthorIdT>;
+global using static Microsoft.FSharp.Core.FSharpOption<Nostra.Kind>;
+global using static Nostra.Client.Request;
+global using static Nostra.Client.Response;
+global using RelayConnection = Nostra.Client.RelayConnection;
+global using EventId = Nostra.EventIdModule;
+global using Event = Nostra.EventModule;
+global using SecretKey = Nostra.SecretKeyModule;

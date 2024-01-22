@@ -8,6 +8,8 @@ Project("{F2A71F9B-5D33-465A-A702-920D77279786}") = "Nostra.Relay", "Nostra.Rela
 EndProject
 Project("{F2A71F9B-5D33-465A-A702-920D77279786}") = "Nostra.Tests", "Nostra.Tests\Nostra.Tests.fsproj", "{36AE25AA-6314-4D66-A758-4442FE616BEE}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Nostra.CSharp", "Nostra.CSharp\Nostra.CSharp.csproj", "{24396D29-6F1E-46A0-83DA-A3299C5F3470}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -30,5 +32,9 @@ Global
 		{36AE25AA-6314-4D66-A758-4442FE616BEE}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{36AE25AA-6314-4D66-A758-4442FE616BEE}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{36AE25AA-6314-4D66-A758-4442FE616BEE}.Release|Any CPU.Build.0 = Release|Any CPU
+		{24396D29-6F1E-46A0-83DA-A3299C5F3470}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{24396D29-6F1E-46A0-83DA-A3299C5F3470}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{24396D29-6F1E-46A0-83DA-A3299C5F3470}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{24396D29-6F1E-46A0-83DA-A3299C5F3470}.Release|Any CPU.Build.0 = Release|Any CPU
 	EndGlobalSection
 EndGlobal

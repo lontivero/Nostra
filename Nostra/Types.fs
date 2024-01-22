@@ -7,7 +7,9 @@ open Thoth.Json.Net
 open System.IO
 open Newtonsoft.Json
 
+[<CompiledName("EventIdT")>]
 type EventId = EventId of byte[]
+[<CompiledName("AuthorIdT")>]
 type AuthorId = AuthorId of ECXOnlyPubKey
 type ProfileName = string
 type SubscriptionId = string
@@ -15,7 +17,8 @@ type SubscriptionId = string
 type SchnorrSignature = SchnorrSignature of SecpSchnorrSignature
 type SerializedEvent = string
 
-module Author =
+module AuthorId =
+    [<CompiledName("Parse")>]
     let parse = function
         | Base64 64 byteArray ->
             match (ECXOnlyPubKey.TryCreate byteArray) with
@@ -24,6 +27,7 @@ module Author =
         | invalid ->
             Error $"Author is invalid. The byte array is not 32 length but %i{invalid.Length / 2}"
 
+    [<CompiledName("ToByteArray")>]
     let toBytes (AuthorId ecpk) =
         ecpk.ToBytes()
 
@@ -31,6 +35,7 @@ module Author =
         toBytes pk1 = toBytes pk2
 
 module SchnorrSignature =
+    [<CompiledName("Parse")>]
     let parse = function
         | Base64 128 byteArray ->
             match (SecpSchnorrSignature.TryCreate byteArray) with
@@ -40,10 +45,12 @@ module SchnorrSignature =
             Error $"SchnorrSignature is invalid. The byte array is not 64 length but %i{invalid.Length / 2}"
 
 module EventId =
+    [<CompiledName("Parse")>]
     let parse = function
         | Base64 64 byteArray -> Ok (EventId byteArray)
         | invalid -> Error $"EventId is invalid. The byte array is not 32 length but %i{invalid.Length / 2}"
 
+    [<CompiledName("ToByteArray")>]
     let toBytes (EventId eid) =
         eid
 
@@ -78,9 +85,9 @@ module Decode =
         |> Decode.map (fun x -> EventId.parse x)
         |> Decode.andThen ofResult
 
-    let author: Decoder<AuthorId> =
+    let authorId: Decoder<AuthorId> =
         Decode.string
-        |> Decode.map Author.parse
+        |> Decode.map AuthorId.parse
         |> Decode.andThen ofResult
 
     let schnorrSignature: Decoder<SchnorrSignature> =
@@ -97,7 +104,7 @@ module Encode =
 
     let eventId (EventId id) = Encode.string (toHex id)
 
-    let author (AuthorId author) =
+    let authorId (AuthorId author) =
         Encode.string (toHex (author.ToBytes()))
 
     let schnorrSignature (SchnorrSignature signature) =

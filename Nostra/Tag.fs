@@ -1,5 +1,6 @@
 namespace Nostra
 
+[<CompiledName("TagT")>]
 type Tag = string * (string list)
 type SingleTag = string * string
 
@@ -17,13 +18,23 @@ module Tag =
         |> List.filter (fun (k,_) -> k = key)
         |> List.map snd
 
+    [<CompiledName "Create">]
+    let create (tag : string) (values: string list) =
+        Tag (tag, values)
+
+    [<CompiledName "Reply">]
     let replyTag (EventId replyTo) uri = Tag("p", [ toHex replyTo; uri ])
 
+    [<CompiledName "ReferenceAuthor">]
     let authorTag (AuthorId pubkey) = Tag("p", [ toHex (pubkey.ToBytes()) ])
 
+    [<CompiledName "EncryptedTo">]
     let encryptedTo  = authorTag
 
+    [<CompiledName "ReferenceEvent">]
     let eventRefTag (EventId eventId) = Tag("e", [ toHex eventId ])
+
+    [<CompiledName "ReferenceRootEvent">]
     let rootEventRefTag (EventId eventId) = Tag("e", [ toHex eventId; ""; "root" ])
 
     let relayTag relay = Tag("r", relay)

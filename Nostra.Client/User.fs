@@ -210,12 +210,12 @@ module User =
         { user with contacts = List.distinctBy (fun c -> c.key) contacts }
 
     let subscribeAuthors (authors : AuthorId list) user =
-        let authors' = List.distinctBy Author.toBytes (user.subscribedAuthors @ authors)
+        let authors' = List.distinctBy AuthorId.toBytes (user.subscribedAuthors @ authors)
         { user with subscribedAuthors = authors' }
 
     let unsubscribeAuthors (authors : AuthorId list) user =
         let authors' = user.subscribedAuthors
-                       |> List.notInBy (fun a1 a2 -> Author.toBytes a1 = Author.toBytes a2) authors
+                       |> List.notInBy (fun a1 a2 -> AuthorId.toBytes a1 = AuthorId.toBytes a2) authors
         { user with subscribedAuthors = authors' }
 
     let subscribeChannels (channels : Channel list) user =
