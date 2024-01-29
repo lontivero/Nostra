@@ -110,19 +110,21 @@ module Bech32 =
                 None)
         |> Option.map (fun data -> (hrp, toBase256 data |> List.toArray))
 
+
+type RelayT = string
+type ShareableEntity =
+     | NSec of SecretKey
+     | NPub of AuthorId
+     | Note of EventId
+     | NProfile of AuthorId * RelayT list
+     | NEvent of EventId * RelayT list * AuthorId option * Kind option
+     | NRelay of RelayT
+
+[<RequireQualifiedAccess>]
 module Shareable =
     open System.Text
     open Microsoft.FSharp.Collections
     open NBitcoin.Secp256k1
-
-    type Relay = string
-    type ShareableEntity =
-    | NSec of SecretKey
-    | NPub of AuthorId
-    | Note of EventId
-    | NProfile of AuthorId * Relay list
-    | NEvent of EventId * Relay list * AuthorId option * Kind option
-    | NRelay of Relay
 
     let private _encode hrp bytesArr =
         Bech32.encode hrp (bytesArr |> Array.toList)

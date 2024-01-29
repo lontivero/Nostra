@@ -14,6 +14,7 @@
         <Compile Include="Event.fs" />
         <Compile Include="EncryptedPayload.fs" />
         <Compile Include="Bech32.fs" />
+        <Compile Include="Content.fs" />
         <Compile Include="Client.fs" />
         <Compile Include="Relay.fs" />
     </ItemGroup>

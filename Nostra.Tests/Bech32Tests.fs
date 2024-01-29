@@ -1,11 +1,8 @@
 module Bech32Tests
 
-open System
 open System.Text
 open System.Security.Cryptography
-open NBitcoin.Secp256k1
 open Nostra
-open Nostra.Shareable
 open Xunit
 open Xunit.Abstractions
 open FsUnit.Xunit
@@ -14,8 +11,8 @@ type ``Nip19 Bech32-Shareable entities``(output:ITestOutputHelper) =
 
     let encodeDecode entity =
         entity
-        |> encode
-        |> decode
+        |> Shareable.encode
+        |> Shareable.decode
         |> Option.get
 
     [<Fact>]
@@ -58,13 +55,13 @@ type ``Nip19 Bech32-Shareable entities``(output:ITestOutputHelper) =
                     "wss://djbas.sadkb.com"
                 ])
 
-        let encodedNprofile = encode nprofile
+        let encodedNprofile = Shareable.encode nprofile
         should equal "nprofile1qqsrhuxx8l9ex335q7he0f09aej04zpazpl0ne2cgukyawd24mayt8gpp4mhxue69uhhytnc9e3k7mgpz4mhxue69uhkg6nzv9ejuumpv34kytnrdaksjlyr9p" encodedNprofile
 
         let reconcodedNprofile =
             encodedNprofile
-            |> decode
-            |> Option.get |> encode
+            |> Shareable.decode
+            |> Option.get |> Shareable.encode
         should equal "nprofile1qqsrhuxx8l9ex335q7he0f09aej04zpazpl0ne2cgukyawd24mayt8gpp4mhxue69uhhytnc9e3k7mgpz4mhxue69uhkg6nzv9ejuumpv34kytnrdaksjlyr9p" reconcodedNprofile
 
     [<Fact>]
