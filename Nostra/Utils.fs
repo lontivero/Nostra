@@ -52,6 +52,10 @@ module List =
         else
             Some (List.map Option.get lst)
 
+    let addUniques items list =
+        items
+        |> List.append list
+        |> List.distinct
 
 [<RequireQualifiedAccess>]
 module Result =

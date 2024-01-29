@@ -68,17 +68,15 @@ module Client =
 
             let events evnts filter =
                 { filter with
-                    Events =
-                       evnts
-                       |> List.append filter.Events
-                       |> List.distinct }
+                    Events = filter.Events |> List.addUniques evnts }
 
             let authors authors (filter : SubscriptionFilter) =
                 { filter with
-                    Authors =
-                       authors
-                       |> List.append filter.Authors
-                       |> List.distinct }
+                    Authors = filter.Authors |> List.addUniques authors }
+
+            let referenceAuthor authors (filter : SubscriptionFilter) =
+                { filter with
+                    PubKeys = filter.PubKeys |> List.addUniques authors }
 
             let channels channels filter =
                 let filter' = events channels filter
