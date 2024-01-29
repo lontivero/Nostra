@@ -13,9 +13,10 @@
         <Compile Include="RelaySimpleTests.fs" />
         <Compile Include="RelayIntegrationTests.fs" />
         <Compile Include="ClientTests.fs" />
-        <Compile Include="Bech32.fs" />
+        <Compile Include="Bech32Tests.fs" />
         <Compile Include="PayloadEncryptionTests.fs" />
         <Compile Include="QueryBuildingTests.fs" />
+        <Compile Include="ContentTests.fs" />
         <Content Include="TestData\nip44.vectors.json">
           <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
         </Content>

@@ -67,6 +67,16 @@ module Result =
         | Choice1Of2 v -> Ok v
         | Choice2Of2 e -> Error e
 
+[<RequireQualifiedAccess>]
+module Regex =
+    open System.Text.RegularExpressions
+    let matches pattern input =
+        let m = Regex.Match(input, pattern, RegexOptions.Multiline ||| RegexOptions.Compiled ||| RegexOptions.CultureInvariant)
+        if m.Success then
+            Some(m.Groups[1].Value, m.Index + m.Length)
+        else
+            None
+
 module Monad =
     type Reader<'environment, 'a> = Reader of ('environment -> 'a)
 
