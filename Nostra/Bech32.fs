@@ -47,12 +47,14 @@ module Bech32 =
 
     type Pad = int -> int -> int list list -> int list list
 
-    let yesPadding bits padValue result =
-        match (bits, padValue, result) with
-        | 0, _, result -> result
-        | _, padValue, result -> [ padValue ] :: result
+    let yesPadding : Pad =
+        fun bits padValue result ->
+            match (bits, padValue, result) with
+            | 0, _, result -> result
+            | _, padValue, result -> [ padValue ] :: result
 
-    let noPadding _ _ result = result
+    let noPadding : Pad =
+        fun _ _ result -> result
 
     let convertBits (data: byte list) fromBits toBits (pad: Pad) =
         let maxValue = (1 <<< toBits) - 1
@@ -93,12 +95,6 @@ module Bech32 =
         hrp + "1" + encoded
 
     let decode (str: string) =
-        let lift l =
-            if List.contains None l then
-                None
-            else
-                Some(List.map Option.get l)
-
         let lastOneIndex = str.IndexOf('1')
         let hrp = HRP str[0 .. lastOneIndex - 1]
         let data = str[lastOneIndex + 1 ..]
@@ -106,7 +102,7 @@ module Bech32 =
         data
         |> Seq.map (fun x -> charsetRev[int x])
         |> Seq.toList
-        |> lift
+        |> List.lift
         |> Option.bind (fun d ->
             if verifyChecksum hrp d then
                 Some(d[.. d.Length - 7])
