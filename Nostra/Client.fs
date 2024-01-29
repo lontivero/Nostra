@@ -173,18 +173,19 @@ module Client =
     open Response
 
     module Communication =
+        [<TailCall>]
+        let rec _readMessage (ctx: Context) (mem:MemoryStream) = async {
+            let buffer = ArrayPool.Shared.Rent(1024)
+            let! result = ctx.WebSocket.read buffer
+            mem.Write (buffer, 0, result.Count)
+            ArrayPool.Shared.Return buffer
+            if result.EndOfMessage then
+                return mem.ToArray()
+            else
+                return! _readMessage ctx mem
+        }
         let readWebSocketMessage (ctx: Context) =
-            let rec readMessage (mem:MemoryStream) = async {
-                let buffer = ArrayPool.Shared.Rent(1024)
-                let! result = ctx.WebSocket.read buffer
-                mem.Write (buffer, 0, result.Count)
-                ArrayPool.Shared.Return buffer
-                if result.EndOfMessage then
-                    return mem.ToArray()
-                else
-                    return! readMessage mem
-            }
-            readMessage (new MemoryStream (4 * 1024))
+            _readMessage ctx (new MemoryStream (4 * 1024))
 
         let receiveMessage =
             Monad.Reader (fun (ctx: Context) -> async {
@@ -202,6 +203,7 @@ module Client =
                    | _ -> Ok relayMsg )
             })
 
+        [<TailCall>]
         let rec startReceiving callback =
             let rec loop (ctx: Context) = async {
                 let (Monad.Reader r ) = receiveMessage
@@ -211,16 +213,17 @@ module Client =
             }
             Monad.Reader (fun (ctx: Context) -> loop ctx)
 
+        [<TailCall>]
+        let rec processClientMessageLoop ctx (inbox: MailboxProcessor<ClientMessage>) = async {
+            let! msg = inbox.Receive()
+            let serializedMessage = msg |> Request.serialize
+            let payload = serializedMessage |> Encoding.UTF8.GetBytes
+            do! ctx.WebSocket.write payload
+            return! processClientMessageLoop ctx inbox }
+
         let sender () =
             let createPusher (ctx: Context) =
-                MailboxProcessor<Request.ClientMessage>.Start (fun inbox ->
-                    let rec loop () = async {
-                        let! msg = inbox.Receive()
-                        let serializedMessage = msg |> Request.serialize
-                        let payload = serializedMessage |> Encoding.UTF8.GetBytes
-                        do! ctx.WebSocket.write payload
-                        return! loop() }
-                    loop () )
+                MailboxProcessor<ClientMessage>.Start (processClientMessageLoop ctx)
 
             Monad.Reader(fun (ctx: Context) ->
                 let pusher = createPusher ctx

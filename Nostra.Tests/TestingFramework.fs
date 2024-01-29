@@ -174,7 +174,7 @@ let deleteNote evnts : EventFactory =
         let ids =
             allEvents
             |> List.filter (fun e -> List.contains (e.Content) evnts)
-            |> List.map (fun e -> e.Id)
+            |> List.map (_.Id)
 
         Event.createDeleteEvent ids "nothing"
 

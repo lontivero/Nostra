@@ -19,19 +19,57 @@ open Suave.Sockets
 open Suave.Sockets.Control
 open Suave.WebSocket
 
+[<TailCall>]
+let rec processRelayMessagesLoop (webSocket: WebSocket) (inbox: MailboxProcessor<RelayMessage>) = async {
+    let! msg = inbox.Receive()
+    let! result = webSocket.send Text (toPayload msg) true
+    return! processRelayMessagesLoop webSocket inbox
+}
+
+[<TailCall>]
+let rec processRequestLoop
+        (clientId: ClientId)
+        (webSocket: WebSocket)
+        (env: Context)
+        (send: RelayMessage -> unit)
+        (processRequest: string -> Async<Result<RelayMessage list,EventProcessingError>>) = socket {
+    let! msg = webSocket.read()
+    match msg with
+    | Text, data, true ->
+        let requestText = UTF8.toString data
+        env.logger.logDebug requestText
+        processRequest requestText
+        |> AsyncResult.map (function
+        | [ ] -> ()
+        | (final::messages) ->
+            messages
+            |> List.rev
+            |> List.iter send
+            send final
+            ())
+        |> Async.RunSynchronously
+        |> Result.defaultWith (function
+            | BusinessError e ->
+                send e
+            | UnexpectedError e ->
+                env.logger.logError (e.ToString())
+                send (RMNotice "unexpected error"))
+
+        return! processRequestLoop clientId webSocket env send processRequest
+    | Close, _, _ ->
+        env.clientRegistry.unsubscribe clientId
+        let emptyResponse = [||] |> ByteSegment
+        do! webSocket.send Close emptyResponse true
+    | _ ->
+        return! processRequestLoop clientId webSocket env send processRequest
+}
 let webSocketHandler () =
     let handle (env : Context) (webSocket : WebSocket) (context: HttpContext) =
         let subscriptions = Dictionary<SubscriptionId, Filter list>()
 
         let send =
             let worker =
-                MailboxProcessor<RelayMessage>.Start(fun inbox ->
-                    let rec loop () = async {
-                        let! msg = inbox.Receive()
-                        let! result = webSocket.send Text (toPayload msg) true
-                        return! loop ()
-                    }
-                    loop () )
+                MailboxProcessor<RelayMessage>.Start(processRelayMessagesLoop webSocket)
             worker.Post
 
         let notifyEvent : EventEvaluator =
@@ -49,40 +87,8 @@ let webSocketHandler () =
 
         let processRequest req = processRequest env subscriptions req
 
-        let rec loop () = socket {
-            let! msg = webSocket.read()
-            match msg with
-            | Text, data, true ->
-                let requestText = UTF8.toString data
-                env.logger.logDebug requestText
-                processRequest requestText
-                |> AsyncResult.map (function
-                | [ ] -> ()
-                | (final::messages) ->
-                    messages
-                    |> List.rev
-                    |> List.iter send
-                    send final
-                    ())
-                |> Async.RunSynchronously
-                |> Result.defaultWith (function
-                    | BusinessError e ->
-                        send e
-                    | UnexpectedError e ->
-                        env.logger.logError (e.ToString())
-                        send (RMNotice "unexpected error"))
-
-                return! loop()
-            | Close, _, _ ->
-                env.clientRegistry.unsubscribe clientId
-                let emptyResponse = [||] |> ByteSegment
-                do! webSocket.send Close emptyResponse true
-            | _ ->
-                return! loop()
-        }
-
         env.clientRegistry.subscribe clientId notifyEvent
-        loop ()
+        processRequestLoop clientId webSocket env send processRequest
     Monad.Reader (fun (ctx : Context) -> handle ctx)
 
 open Suave.Operators

@@ -207,7 +207,7 @@ module User =
 
     let addContact key metadata user =
         let contacts = { key = key; metadata = metadata }:: user.contacts
-        { user with contacts = List.distinctBy (fun c -> c.key) contacts }
+        { user with contacts = List.distinctBy (_.key) contacts }
 
     let subscribeAuthors (authors : AuthorId list) user =
         let authors' = List.distinctBy AuthorId.toBytes (user.subscribedAuthors @ authors)
