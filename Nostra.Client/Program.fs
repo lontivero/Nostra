@@ -103,7 +103,7 @@ let publish event relays =
 
 [<EntryPoint>]
 let Main args =
-    let opts = CommandLineParser.parseArgs args
+    let opts = CliArgsParser.parseArgs args
 
     let userFilePath = opts.getUserFilePath ()
 
@@ -141,11 +141,16 @@ let Main args =
         let channels = opts.getSubcribeChannel() |> List.map Shareable.decodeNote |> List.lift |> Option.get
         User.apply userFilePath (User.unsubscribeChannels channels)
 
-    if opts.isPublish() then
-        let message = opts.getMessageToPublish()
+    if opts.isCreate() then
+        let message = opts.getNoteText()
         let user = User.load userFilePath
-        let event = Event.createNote message |> Event.sign user.secret
-        publish event user.relays
+        let secret = opts.getSecret() |> Option.bind (Shareable.decodeNsec) |> Option.defaultValue user.secret
+        let referenceTags = Content.extractNip27Mentions message
+        let event = Event.create Kind.Text referenceTags message |> Event.sign secret
+        if opts.isPublish() then
+            publish event user.relays
+        Console.WriteLine (Event.serialize event)
+        Console.WriteLine (Shareable.encodeNevent (event.Id, [], Some event.PubKey, Some event.Kind  ))
 
     if opts.isPublishToChannel() then
         let channel', message =

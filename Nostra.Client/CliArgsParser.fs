@@ -13,7 +13,7 @@ module StdIn =
         |> Seq.skipWhile String.IsNullOrWhiteSpace
         |> Seq.head
 
-module CommandLineParser =
+module CliArgsParser =
     let words (str: string) = str.Split (' ', StringSplitOptions.RemoveEmptyEntries)
 
     type Token =
@@ -28,6 +28,7 @@ module CommandLineParser =
         | Picture
         | Nip05
         | Publish
+        | Create
         | PublishToChannel
         | DirectMessage
         | Listen
@@ -40,6 +41,7 @@ module CommandLineParser =
         | UnsubscribeAuthor
         | SubscribeChannel
         | UnsubscribeChannel
+        | Secret
         | Value of string
 
     let tokenize (args : string[]) =
@@ -55,6 +57,7 @@ module CommandLineParser =
                  | "--about" -> About
                  | "--nip05" -> Nip05
                  | "-p" | "--publish" -> Publish
+                 | "--create" -> Create
                  | "--publish-to-channel" -> PublishToChannel
                  | "--dm" -> DirectMessage
                  | "--tag" -> Tag
@@ -67,20 +70,22 @@ module CommandLineParser =
                  | "--unsubscribe-author" -> UnsubscribeAuthor
                  | "--subscribe-channel" -> SubscribeChannel
                  | "--unsubscribe-channel" -> UnsubscribeChannel
+                 | "--secret" -> Secret
                  | _ -> Value x]
 
-    let groupTokens tokens =
-        let rec groupTokens tokens cur acc =
-            match tokens with
-            | [] -> acc
-            | Value h::t -> groupTokens t cur ((cur, h) :: acc)
-            | h::t -> groupTokens t h ((h, "") :: acc)
+    [<TailCall>]
+    let rec _groupTokens tokens cur acc =
+        match tokens with
+        | [] -> acc
+        | Value h::t -> _groupTokens t cur ((cur, h) :: acc)
+        | h::t -> _groupTokens t h ((h, "") :: acc)
 
+    let groupTokens tokens =
         match tokens with
         | [] -> []
         | Value t::_ -> failwith "Invalid command"
         | command::t ->
-            groupTokens t command [ (command, "") ]
+            _groupTokens t command [ (command, "") ]
 
     let tryGet key opts =
         opts
@@ -120,8 +125,10 @@ module CommandLineParser =
             getUnsubcribeChannel = fun () -> tryGet UnsubscribeChannel opts |> Option.defaultValue []
             isListen = fun () -> tryGet Listen opts |> Option.isSome
             isPublish = fun () -> tryGetFirst Publish opts |> Option.isSome
-            getMessageToPublish = fun () -> tryGetFirst Publish opts |> orAsk "Note"
+            isCreate = fun () -> tryGetFirst Create opts |> Option.isSome
+            getNoteText = fun () -> tryGetFirst Create opts |> orAsk "Note"
             isPublishToChannel = fun () -> tryGet PublishToChannel opts |> Option.isSome
             getMessageToChannel = fun () -> tryGet PublishToChannel opts
             getUserFilePath = fun () -> tryGetFirst User opts |> Option.defaultValue "default-user.json"
+            getSecret = fun () -> tryGetFirst Secret opts
         |}
