@@ -73,11 +73,12 @@ module Relay =
                     | None, Some until -> eventInfo.Event.CreatedAt <= until
                     | Some since, Some until -> eventInfo.Event.CreatedAt >= since && eventInfo.Event.CreatedAt <= until
 
+                let removeCat (tagKey:string) = if tagKey.StartsWith("#") then tagKey[1..] else tagKey
                 isInTimeWindow &&
                 filter.Ids     |> matchList [eventInfo.Id] &&
                 filter.Kinds   |> matchList [eventInfo.Event.Kind] &&
                 filter.Authors |> matchList [eventInfo.PubKey] &&
-                filter.Tags    |> Tag.ungroup |> matchList (Tag.ungroup eventInfo.Event.Tags)
+                filter.Tags    |> Tag.ungroup |> List.map (fun (k,v) -> removeCat k, v ) |> matchList (Tag.ungroup eventInfo.Event.Tags)
 
             let eventMatchesAnyFilter (filters: Filter list) (event: StoredEvent) =
                 filters |> List.exists (eventMatchesFilter event)
