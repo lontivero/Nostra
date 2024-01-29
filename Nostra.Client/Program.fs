@@ -26,9 +26,9 @@ let displayResponse (contacts : Map<byte[], Contact>) (addContact: ContactKey ->
         | Ok metadata -> addContact contactKey metadata
         | Error _ -> ()
     | Ok (Response.RMEvent ("all", event)) ->
-        let (EventId eventid) = event.Id
+        let (EventId eventId) = event.Id
 
-        if not (receivedEvents.Contains eventid) then
+        if not (receivedEvents.Contains eventId) then
             let contactKey =
                 if event.Kind = Kind.ChannelMessage then
                     let eventId =
@@ -56,12 +56,12 @@ let displayResponse (contacts : Map<byte[], Contact>) (addContact: ContactKey ->
             let eventLink = link emoji $"https://njump.me/{nevent}"
             let authorLink= link $"👤 {author}" $"https://njump.me/{authorNpub}"
             Console.WriteLine $"{eventLink} {authorLink} 📅 {event.CreatedAt}"
-            Console.ForegroundColor <- enum<ConsoleColor> (-1)
+            Console.ForegroundColor <- enum<ConsoleColor> -1
             Console.WriteLine (event.Content.Trim())
             //Console.ForegroundColor <- ConsoleColor.DarkGray
             //Console.WriteLine (event.Tags |> List.map (fun (t, vs) -> $"{t}:{vs}"))
             Console.WriteLine ()
-            receivedEvents.Add eventid |> ignore
+            receivedEvents.Add eventId |> ignore
 
     | Ok (Response.RMACK(eventId, success, message)) ->
         Console.ForegroundColor <- ConsoleColor.Green
