@@ -93,12 +93,6 @@ module Bech32 =
         hrp + "1" + encoded
 
     let decode (str: string) =
-        let lift l =
-            if List.contains None l then
-                None
-            else
-                Some(List.map Option.get l)
-
         let lastOneIndex = str.IndexOf('1')
         let hrp = HRP str[0 .. lastOneIndex - 1]
         let data = str[lastOneIndex + 1 ..]
@@ -106,7 +100,7 @@ module Bech32 =
         data
         |> Seq.map (fun x -> charsetRev[int x])
         |> Seq.toList
-        |> lift
+        |> List.lift
         |> Option.bind (fun d ->
             if verifyChecksum hrp d then
                 Some(d[.. d.Length - 7])
