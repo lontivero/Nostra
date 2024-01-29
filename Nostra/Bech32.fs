@@ -47,12 +47,14 @@ module Bech32 =
 
     type Pad = int -> int -> int list list -> int list list
 
-    let yesPadding bits padValue result =
-        match (bits, padValue, result) with
-        | 0, _, result -> result
-        | _, padValue, result -> [ padValue ] :: result
+    let yesPadding : Pad =
+        fun bits padValue result ->
+            match (bits, padValue, result) with
+            | 0, _, result -> result
+            | _, padValue, result -> [ padValue ] :: result
 
-    let noPadding _ _ result = result
+    let noPadding : Pad =
+        fun _ _ result -> result
 
     let convertBits (data: byte list) fromBits toBits (pad: Pad) =
         let maxValue = (1 <<< toBits) - 1
