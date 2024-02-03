@@ -145,7 +145,7 @@ let Main args =
         let message = opts.getNoteText()
         let user = User.load userFilePath
         let secret = opts.getSecret() |> Option.bind (Shareable.decodeNsec) |> Option.defaultValue user.secret
-        let referenceTags = Content.extractNip27Mentions message
+        let referenceTags = Content.extractReferences message
         let event = Event.create Kind.Text referenceTags message |> Event.sign secret
         if opts.isPublish() then
             publish event user.relays
