@@ -29,3 +29,9 @@ type ``Simple references``(output:ITestOutputHelper) =
         "Hello #nostr world"
         |> Content.extractReferences
         |> should equal  [("t", ["nostr"])]
+
+    [<Fact>]
+    let ``Parse web reference reference`` () =
+        "My repo https://github.com/lontivero/Nostra"
+        |> Content.extractReferences
+        |> should equal  [("r", ["https://github.com/lontivero/Nostra"])]
