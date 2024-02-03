@@ -71,11 +71,8 @@ module Result =
 module Regex =
     open System.Text.RegularExpressions
     let matches pattern input =
-        let m = Regex.Match(input, pattern, RegexOptions.Multiline ||| RegexOptions.Compiled ||| RegexOptions.CultureInvariant)
-        if m.Success then
-            Some(m.Groups[1].Value, m.Index + m.Length)
-        else
-            None
+        let ms = Regex.Matches(input, pattern, RegexOptions.Multiline ||| RegexOptions.Compiled ||| RegexOptions.CultureInvariant)
+        ms |> Seq.collect (_.Groups) |> Seq.filter (_.Success) |> Seq.map (fun g -> g.Name, g.Value)
 
 module Monad =
     type Reader<'environment, 'a> = Reader of ('environment -> 'a)

@@ -35,3 +35,14 @@ type ``Simple references``(output:ITestOutputHelper) =
         "My repo https://github.com/lontivero/Nostra"
         |> Content.extractReferences
         |> should equal  [("r", ["https://github.com/lontivero/Nostra"])]
+
+type ``Composed references``(output:ITestOutputHelper) =
+
+    [<Fact>]
+    let ``Parse all kind of references/mentions`` () =
+        "hello #nostr look at my repo https://github.com/lontivero/Nostra nostr:nevent1qqswdshtyvpxkfelmzrmk9uk35vm0762mmt5pde600ljstswzd275hcpp4mhxue69uhkummn9ekx7mqpr4mhxue69uhkummnw3ez6ur4vgh8wetvd3hhyer9wghxuet5qgsfuv8fgq3cek0ta0rr9qtkm4x3pxqjz22y9u4xcwrj0lrxlfl2jzsrqsqqqqqpx9tsca"
+        |> Content.extractReferences
+        |> should equal [
+           ("t", ["nostr"])
+           ("r", ["https://github.com/lontivero/Nostra"])
+           ("e", ["e6c2eb23026b273fd887bb17968d19b7fb4aded740b73a7bff282e0e1355ea5f"; "wss://nos.lol"; "wss://nostr-pub.wellorder.net"])]

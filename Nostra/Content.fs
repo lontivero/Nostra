@@ -1,14 +1,11 @@
 namespace Nostra
 
 module Content =
-  let (|Nip27Mention|_|) = Regex.matches @"\bnostr:((?:note|npub|naddr|nevent|nprofile)1\w+)\b"
-  let (|HashTag|_|) = Regex.matches @"#(\w+)\b"
-  let (|Reference|_|) = Regex.matches @"\b(https?:\/\/.+)\b"
+  let contentToExtractRegex = Regex.matches  @"\bnostr:(?<nip27>(?:note|npub|naddr|nevent|nprofile)1\w+)\b|#(?<hashtag>\w+)\b|\b(?<reference>https?:\/\/\S+)\b"
 
   let extractReferences content =
-      let rec parseMentions content (mentions : Tag list) =
-          match content with
-          | Nip27Mention (mention, endPos) ->
+      let parseMentions = function
+          | "nip27", mention ->
               Shareable.decode mention
               |> Option.map (function
                  | NPub authorId -> Tag.authorTag authorId
@@ -17,16 +14,14 @@ module Content =
                  | NEvent(EventId eventId, relays, _, _) -> Tag("e", (Utils.toHex eventId)::relays)
                  | NRelay relay -> Tag.relayTag [relay]
                  | NSec _ -> failwith "Are you crazy!?" )
-              |> function
-                 | Some mention -> parseMentions content[endPos..] (mention::mentions)
-                 | None -> parseMentions content[endPos..] mentions
-          | Reference (reference, endPos) ->
-              let ref = Tag("r", [reference])
-              parseMentions content[endPos..] (ref::mentions)
-          | HashTag (hashtag, endPos) ->
-              let tag = Tag("t", [hashtag])
-              parseMentions content[endPos..] (tag::mentions)
-          | _ -> mentions
-      parseMentions content []
-      |> List.rev
+          | "reference", reference ->
+              Some (Tag("r", [reference]))
+          | "hashtag", hashtag ->
+              Some (Tag("t", [hashtag]))
+          | _ -> None
+
+      (contentToExtractRegex content, [])
+      ||> Seq.foldBack (fun g acc -> (parseMentions g)::acc)
+      |> Seq.choose id
+      |> Seq.toList
 
