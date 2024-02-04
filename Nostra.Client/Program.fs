@@ -76,6 +76,7 @@ let displayResponse (contacts : Map<byte[], Contact>) (addContact: ContactKey ->
     | Error e ->
         Console.ForegroundColor <- ConsoleColor.Red
         Console.WriteLine (e.ToString())
+    | _ -> ()
 
 let sync = obj
 let display (contacts : Map<byte[], Contact>) response =
@@ -164,12 +165,58 @@ let Main args =
         let event = Event.createChannelMessage channel message |> Event.sign user.secret
         publish event user.relays
 
+    if opts.isWhoAmI() then
+        let user = User.load userFilePath
+        Console.WriteLine $"name:\t{user.metadata.name}"
+
+    if opts.isShowMetadata() then
+        let user = User.load userFilePath
+        Console.WriteLine (user.metadata |> Metadata.Encode.metadata |> Encode.toString 2)
+
+    if opts.isShowContacts() then
+        let user = User.load userFilePath
+        Console.WriteLine (user.contacts |> List.map Contact.Encode.contact |> Encode.list |> Encode.toString 2)
+
+    if opts.isShowPublicKey() then
+        let user = User.load userFilePath
+        Console.WriteLine (user.secret |> SecretKey.getPubKey |> Shareable.encodeNpub)
+
+    if opts.isShowSecretKey() then
+        let user = User.load userFilePath
+        Console.WriteLine (user.secret |> Shareable.encodeNsec)
+
+    if opts.isNpubToHex() then
+        opts.getNpubToHex()
+        |> List.map Shareable.decodeNpub
+        |> List.iter (function
+            | Some authorId -> Console.WriteLine (Utils.toHex (AuthorId.toBytes authorId))
+            | None -> Console.WriteLine "The entered npub is not well formed")
+
+    if opts.isHexToNpub() then
+        opts.getHexToNpub()
+        |> List.map AuthorId.parse
+        |> List.iter (function
+            | Ok authorId -> Console.WriteLine (Shareable.encodeNpub authorId)
+            | Error _ -> Console.WriteLine "The entered hex is not a valid public key")
+
     if opts.isListen() then
         let user = User.load userFilePath
+
+        let since =
+            opts.getSinceHoursAgo()
+            |> Option.map Int32.Parse
+            |> Option.defaultValue -40
+            |> fun hours -> DateTime.UtcNow.AddHours -hours
+
+        let limit =
+            opts.getLimit()
+            |> Option.map Int32.Parse
+            |> Option.defaultValue 1_000
+
         let filter =
             Filter.all
-            |> Filter.since (DateTime.Today.AddDays -40)
-            |> Filter.limit 100
+            |> Filter.since since
+            |> Filter.limit limit
 
         let filterAuthors =
             match user.subscribedAuthors with

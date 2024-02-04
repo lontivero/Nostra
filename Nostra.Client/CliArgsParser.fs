@@ -42,6 +42,15 @@ module CliArgsParser =
         | SubscribeChannel
         | UnsubscribeChannel
         | Secret
+        | WhoAmI
+        | ShowContacts
+        | ShowMetadata
+        | ShowPublicKey
+        | ShowSecretKey
+        | ConvertNpubToHex
+        | ConvertHexToNpub
+        | SinceHoursAgo
+        | Limit
         | Value of string
 
     let tokenize (args : string[]) =
@@ -71,6 +80,15 @@ module CliArgsParser =
                  | "--subscribe-channel" -> SubscribeChannel
                  | "--unsubscribe-channel" -> UnsubscribeChannel
                  | "--secret" -> Secret
+                 | "--whoami" -> WhoAmI
+                 | "--show-contacts" -> ShowContacts
+                 | "--show-metadata" -> ShowMetadata
+                 | "--show-public-key" -> ShowPublicKey
+                 | "--show-secret-key" -> ShowSecretKey
+                 | "--npub-to-hex" -> ConvertNpubToHex
+                 | "--hex-to-npub" -> ConvertHexToNpub
+                 | "--since-hours-ago" -> SinceHoursAgo
+                 | "--limit" -> Limit
                  | _ -> Value x]
 
     [<TailCall>]
@@ -131,4 +149,15 @@ module CliArgsParser =
             getMessageToChannel = fun () -> tryGet PublishToChannel opts
             getUserFilePath = fun () -> tryGetFirst User opts |> Option.defaultValue "default-user.json"
             getSecret = fun () -> tryGetFirst Secret opts
+            isWhoAmI = fun () -> tryGet WhoAmI opts |> Option.isSome
+            isShowMetadata = fun () -> tryGet ShowMetadata opts |> Option.isSome
+            isShowContacts = fun () -> tryGet ShowContacts opts |> Option.isSome
+            isShowPublicKey = fun () -> tryGet ShowPublicKey opts |> Option.isSome
+            isShowSecretKey = fun () -> tryGet ShowSecretKey opts |> Option.isSome
+            isNpubToHex = fun () -> tryGetFirst ConvertNpubToHex opts |> Option.isSome
+            getNpubToHex = fun () -> tryGet ConvertNpubToHex opts |> Option.defaultValue []
+            isHexToNpub = fun () -> tryGet ConvertHexToNpub opts |> Option.isSome
+            getHexToNpub = fun () -> tryGet ConvertHexToNpub opts |> Option.defaultValue []
+            getSinceHoursAgo = fun () -> tryGetFirst SinceHoursAgo opts
+            getLimit = fun () -> tryGetFirst Limit opts
         |}
