@@ -22,11 +22,18 @@ buildDotnetModule rec {
 
     src = ./..;
 
-    projectFile = "Nostra.sln";
+    projectFile = ["Nostra.Relay/Nostra.Relay.fsproj" "Nostra.Client/Nostra.Client.fsproj"];
     testProjectFile = "Nostra.Tests/Nostra.Tests.fsproj";
     executables = [ "Nostra.Relay" "Nostra.Client" ];
-
     doCheck = true;
+
+    # wrap manually, because we want not so ugly executable names
+    dontDotnetFixup = true;
+
+    preFixup = ''
+      wrapDotnetProgram $out/lib/${pname}/Nostra.Relay $out/bin/nrelay
+      wrapDotnetProgram $out/lib/${pname}/Nostra.Client $out/bin/ncli
+    '';
 
     meta = with lib; {
       homepage = "some_homepage";
