@@ -8,8 +8,10 @@ open Microsoft.FSharp.Collections
 open Nostra
 open Nostra.Relay
 
-let connection connectionString =
-    Sql.existingConnection (new SqliteConnection(connectionString))
+let openConnection connectionString =
+    let conn = new SqliteConnection(connectionString)
+    conn.Open()
+    Sql.existingConnection conn
 
 let createTables connection =
 
@@ -59,8 +61,8 @@ let createTables connection =
     |> Sql.executeCommand
     |> (fun result ->
         match result with
-        | Ok rows -> ()
-        | Error exn -> failwith exn.Message)
+        | Ok _ -> ()
+        | Error exn -> raise exn)
 
 let nip16Replacement connection author kind createdAt =
     connection
@@ -92,11 +94,12 @@ let nip33Replacement connection author kind createdAt value =
 let save connection eventId author preprocessedEvent = asyncResult {
     let tags = Tag.ungroup preprocessedEvent.Event.Tags
 
-    let! id =
+    let! ids =
         connection
         |> Sql.query
             "INSERT OR IGNORE INTO events(event_hash, author, kind, created_at, expires_at, serialized_event, deleted)
-                VALUES (@event_hash, @author, @kind, @created_at, @expires_at, @serialized_event, @deleted)"
+                VALUES (@event_hash, @author, @kind, @created_at, @expires_at, @serialized_event, @deleted)
+                RETURNING id"
         |> Sql.parameters [
             "@event_hash", Sql.bytes eventId
             "@author", Sql.bytes author
@@ -105,23 +108,26 @@ let save connection eventId author preprocessedEvent = asyncResult {
             "@expires_at", Sql.dateTime (preprocessedEvent.Event |> Event.expirationUnixDateTime |> Option.map Utils.fromUnixTime |> Option.defaultValue DateTime.MaxValue)
             "@serialized_event", Sql.string preprocessedEvent.Serialized
             "@deleted", Sql.bool false ]
-        |> Sql.executeNonQuery
+        |> Sql.executeAsync (fun read -> read.int64 "id")
 
-    if tags.Length > 0 then
-        let! _ =
-            connection
-            |> Sql.executeTransactionAsync [
-                "INSERT OR IGNORE INTO tags(event_id, name, value, created_at, kind)
-                    VALUES (@event_id, @name, @value, @created_at, @kind)",
-                tags
-                |> List.map (fun (key, value) -> [
-                    "@event_id", Sql.int id
-                    "@name", Sql.string key
-                    "@value", Sql.string value
-                    "@created_at", Sql.dateTime preprocessedEvent.Event.CreatedAt
-                    "@kind", Sql.int (int preprocessedEvent.Event.Kind)])]
+    match ids with
+    | [] -> return ()  // INSERT OR IGNORE: row already exists, nothing inserted
+    | id :: _ ->
+        if tags.Length > 0 then
+            let! _ =
+                connection
+                |> Sql.executeTransactionAsync [
+                    "INSERT OR IGNORE INTO tags(event_id, name, value, created_at, kind)
+                        VALUES (@event_id, @name, @value, @created_at, @kind)",
+                    tags
+                    |> List.map (fun (key, value) -> [
+                        "@event_id", Sql.int64 id
+                        "@name", Sql.string key
+                        "@value", Sql.string value
+                        "@created_at", Sql.dateTime preprocessedEvent.Event.CreatedAt
+                        "@kind", Sql.int (int preprocessedEvent.Event.Kind)])]
+            return ()
         return ()
-    return ()
 }
 
 let deleteReplacement connection author kind =
@@ -195,7 +201,7 @@ let deleteEvents connection (AuthorId author) eventIds =
         ]
     ]
 
-type Columnn = | Column of string * string
+type Column = | Column of string * string
 type Limit = int option
 type Query =
     | Projection of string * Expression * Limit
@@ -203,10 +209,10 @@ and MultiValue =
      | SimpleList of SqliteParameter list
      | SelectList of Query
 and Expression =
-    | EqualTo of Columnn * SqliteParameter
-    | GreaterThan of Columnn * SqliteParameter
-    | LessThan of Columnn * SqliteParameter
-    | In of Columnn * MultiValue
+    | EqualTo of Column * SqliteParameter
+    | GreaterThan of Column * SqliteParameter
+    | LessThan of Column * SqliteParameter
+    | In of Column * MultiValue
     | And of Expression * Expression
 
 let buildQueryForFilter (now : DateTime) (filter: Request.Filter) =
@@ -257,7 +263,7 @@ let buildQueryForFilter (now : DateTime) (filter: Request.Filter) =
                 In (Column ("e", "id"), SelectList select))
 
         filter.Tags
-        |> List.map (fun (tag, values) -> tagCondition tag[1..2] values)
+        |> List.map (fun (tag, values) -> tagCondition tag[1..] values)
 
     let conditions =
         ([notHidden; notExpired; authCondition; kindCondition "e"; idCondition; sinceCondition "e"; untilCondition "e"] @ tagsCondition)

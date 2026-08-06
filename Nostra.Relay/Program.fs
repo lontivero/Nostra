@@ -105,7 +105,7 @@ let relayInformationDocument =
     >=> Writers.setHeader "Access-Control-Allow-Methods" "*"
 
 let buildContext (connectionString : string) (logger: TextWriter) =
-    let dbconnection = Database.connection connectionString
+    let dbconnection = Database.openConnection connectionString
     Database.createTables dbconnection
 
     {
