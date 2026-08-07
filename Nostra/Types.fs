@@ -59,6 +59,10 @@ module EventId =
     let toBytes (EventId eid) =
         eid
 
+    [<CompiledName("ToHex")>]
+    let toHex (EventId eid) =
+        toHex eid
+
 module Decode =
     let ofResult = function
         | Ok result -> Decode.succeed result
