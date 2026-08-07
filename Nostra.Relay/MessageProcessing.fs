@@ -49,10 +49,9 @@ let canPersistEvent (event : Event) = result {
 let verifyCanSubscribe subscriptionId filters (subscriptionStore : SubscriptionStore) = result {
     let filterCount = Seq.length filters
     do! Result.requireTrue (noticeError "Too many filters") (filterCount < 5)
+    let isNewSubscription = not (subscriptionStore.ContainsKey subscriptionId)
     let subscriptionCount = Seq.length subscriptionStore
-    do! Result.requireTrue (noticeError "Too many subscription") (subscriptionCount < 10)
-    let exists, existingFilters = subscriptionStore.TryGetValue(subscriptionId)
-    do! Result.requireFalse (noticeError "Duplicated subscription") (exists && existingFilters = filters)
+    do! Result.requireTrue (noticeError "Too many subscriptions") (subscriptionCount < 10 || not isNewSubscription)
     }
 
 let processRequest (env : Context) (subscriptionStore : SubscriptionStore) requestText = asyncResult {
@@ -72,7 +71,7 @@ let processRequest (env : Context) (subscriptionStore : SubscriptionStore) reque
 
     | CMSubscribe(subscriptionId, filters) ->
         do! (verifyCanSubscribe subscriptionId filters subscriptionStore)
-        subscriptionStore.Add( subscriptionId, filters )
+        subscriptionStore[subscriptionId] <- filters
         let! matchingEvents =
             filterEvents env.eventStore.fetchEvents filters DateTime.Now
             |> AsyncResult.mapError (fun ec -> noticeError "Something was wrong.")
