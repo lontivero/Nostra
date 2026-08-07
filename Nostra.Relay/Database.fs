@@ -155,8 +155,7 @@ let deleteParameterizedReplacement connection author kind dtag =
                 WHERE e.kind=@kind
                     AND e.author=@author
                     AND t.name='d'
-                    AND t.value=@dtag
-                ORDER BY t.created_at DESC LIMIT 1)"
+                    AND t.value=@dtag)"
     |> Sql.parameters [
         "@author", Sql.bytes author
         "@kind", Sql.int kind
