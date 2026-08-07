@@ -22,6 +22,8 @@ type Kind =
     | ChannelMessage = 42
     | HideMessage = 43
     | MuteUser = 44
+    | GitPatch = 1_617
+    | GitIssue = 1_621
     | ReplaceableStart = 10_000
     | RelayList = 10_002
     | ReplaceableEnd = 20_000
@@ -29,6 +31,7 @@ type Kind =
     | EphemeralEnd = 30_000
     | ParameterizableReplaceableStart = 30_000
     | ParameterizableReplaceableEnd = 40_000
+    | GitRepositoryAnnouncement = 30_617
 
 [<CompiledName("EventT")>]
 type Event =

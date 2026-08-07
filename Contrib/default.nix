@@ -18,7 +18,7 @@ buildDotnetModule rec {
 
     pname = "nostra";
     version = "0.0.1";
-    nugetDeps = ./deps.nix; # nix build .#packages.x86_64-linux.default.passthru.fetch-deps
+    nugetDeps = ./deps.json; # nix build .#packages.x86_64-linux.default.passthru.fetch-deps
 
     src = ./..;
 

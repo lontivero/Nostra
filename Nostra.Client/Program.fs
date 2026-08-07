@@ -284,15 +284,17 @@ let Main args =
         let display = display contactMap addContact
         let connectSubscribeAndListen uri = async {
             let! relay = connectToRelay uri
-            [filterAuthors; filterChannels]
-            |> List.choose id
-            |> relay.subscribe "all"
+            //[filterAuthors; filterChannels]
+            //|> List.choose id
+            //|> relay.subscribe "all"
 
-            filterMetadata
-            |> Option.iter (fun filter -> relay.subscribe "metadata" [filter])
+            relay.subscribe "all" [(Filter.all |> fun f -> { f with Kinds = [Kind.GitRepositoryAnnouncement; Kind.GitPatch; Kind.GitIssue]})]
 
-            filterChannelMetadata
-            |> Option.iter (fun filter -> relay.subscribe "channelmetadata" [filter])
+            //filterMetadata
+            //|> Option.iter (fun filter -> relay.subscribe "metadata" [filter])
+
+            //filterChannelMetadata
+            //|> Option.iter (fun filter -> relay.subscribe "channelmetadata" [filter])
             do! relay.startListening display
         }
 

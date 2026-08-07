@@ -11,6 +11,7 @@ open Newtonsoft.Json
 type EventId = EventId of byte[]
 [<CompiledName("AuthorIdT")>]
 type AuthorId = AuthorId of ECXOnlyPubKey
+
 type ProfileName = string
 type SubscriptionId = string
 
@@ -30,6 +31,10 @@ module AuthorId =
     [<CompiledName("ToByteArray")>]
     let toBytes (AuthorId ecpk) =
         ecpk.ToBytes()
+
+    [<CompiledName("ToHex")>]
+    let toHex (AuthorId ecpk) =
+        toHex (ecpk.ToBytes())
 
     let equals pk1 pk2 =
         toBytes pk1 = toBytes pk2

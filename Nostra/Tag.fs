@@ -22,6 +22,8 @@ module Tag =
     let create (tag : string) (values: string list) =
         Tag (tag, values)
 
+    let createSingle key value = create key [value]
+
     [<CompiledName "Reply">]
     let replyTag (EventId replyTo) uri = Tag("p", [ toHex replyTo; uri ])
 
