@@ -14,153 +14,155 @@ module StdIn =
         |> Seq.head
 
 module CliArgsParser =
-    let words (str: string) = str.Split (' ', StringSplitOptions.RemoveEmptyEntries)
 
-    type Token =
-        | User
-        | DataDir
-        | AddRelay
-        | RemoveRelay
-        | CreateUser
-        | RemoveUser
-        | Name
-        | DisplayName
-        | About
-        | Picture
-        | Nip05
-        | Publish
-        | Create
-        | PublishToChannel
-        | DirectMessage
-        | Listen
-        | Tag
-        | Alias
-        | Relay
-        | Proxy
-        | Key
-        | SubscribeAuthor
-        | UnsubscribeAuthor
-        | SubscribeChannel
-        | UnsubscribeChannel
-        | Secret
+    type GlobalOptions = {
+        UserFile: string
+        DataDir: string option
+        Proxy: string option
+        Secret: string option
+    }
+
+    type Command =
+        | CreateUser of name: string * displayName: string option * about: string option * picture: string option * nip05: string option
+        | AddRelay of urls: string list
+        | RemoveRelay of urls: string list
+        | SubscribeAuthor of npubs: string list
+        | UnsubscribeAuthor of npubs: string list
+        | SubscribeChannel of noteIds: string list
+        | UnsubscribeChannel of noteIds: string list
+        | Create of text: string * publish: bool
+        | PublishToChannel of channel: string option * message: string option
+        | Listen of sinceHoursAgo: int option * limit: int option
         | WhoAmI
-        | ShowContacts
         | ShowMetadata
+        | ShowContacts
         | ShowPublicKey
         | ShowSecretKey
-        | ConvertNpubToHex
-        | ConvertHexToNpub
-        | SinceHoursAgo
-        | Limit
-        | Value of string
+        | NpubToHex of npubs: string list
+        | HexToNpub of hexes: string list
 
-    let tokenize (args : string[]) =
-        [for x in args do
-           yield match x with
-                 | "-u" | "--user" -> User
-                 | "--datadir" -> DataDir
-                 | "--add-relay" -> AddRelay
-                 | "--remove-relay" -> RemoveRelay
-                 | "--create-user" -> CreateUser
-                 | "--remove-user" -> RemoveUser
-                 | "--name" -> Name
-                 | "--display-name" -> DisplayName
-                 | "--about" -> About
-                 | "--nip05" -> Nip05
-                 | "-p" | "--publish" -> Publish
-                 | "--create" -> Create
-                 | "--publish-to-channel" -> PublishToChannel
-                 | "--dm" -> DirectMessage
-                 | "--tag" -> Tag
-                 | "--listen" -> Listen
-                 | "--alias" -> Alias
-                 | "--relay" -> Relay
-                 | "--proxy" -> Proxy
-                 | "--key" -> Key
-                 | "--subscribe-author" -> SubscribeAuthor
-                 | "--unsubscribe-author" -> UnsubscribeAuthor
-                 | "--subscribe-channel" -> SubscribeChannel
-                 | "--unsubscribe-channel" -> UnsubscribeChannel
-                 | "--secret" -> Secret
-                 | "--whoami" -> WhoAmI
-                 | "--show-contacts" -> ShowContacts
-                 | "--show-metadata" -> ShowMetadata
-                 | "--show-public-key" -> ShowPublicKey
-                 | "--show-secret-key" -> ShowSecretKey
-                 | "--npub-to-hex" -> ConvertNpubToHex
-                 | "--hex-to-npub" -> ConvertHexToNpub
-                 | "--since-hours-ago" -> SinceHoursAgo
-                 | "--limit" -> Limit
-                 | _ -> Value x]
+    type ParsedArgs = {
+        Global: GlobalOptions
+        Commands: Command list
+    }
 
-    [<TailCall>]
-    let rec _groupTokens tokens cur acc =
-        match tokens with
-        | [] -> acc
-        | Value h::t -> _groupTokens t cur ((cur, h) :: acc)
-        | h::t -> _groupTokens t h ((h, "") :: acc)
+    module private Helpers =
+        let tryFindValue flag (args: string list) =
+            args
+            |> List.pairwise
+            |> List.tryFind (fun (f, _) -> f = flag)
+            |> Option.map snd
 
-    let groupTokens tokens =
-        match tokens with
-        | [] -> []
-        | Value t::_ -> failwith "Invalid command"
-        | command::t ->
-            _groupTokens t command [ (command, "") ]
+        let tryFindValue2 flag1 flag2 args =
+            tryFindValue flag1 args
+            |> Option.orElse (tryFindValue flag2 args)
 
-    let tryGet key opts =
-        opts
-        |> List.filter (fun (k, _) -> k = key)
-        |> List.map snd
-        |> List.rev
-        |> function
-            | [] -> None
-            | ""::rest -> Some rest
-            | values -> Some values
+        let takeValuesAfter (args: string list) =
+            args |> List.takeWhile (fun (s: string) -> not (s.StartsWith "-"))
 
-    let parseArgs args =
-        let tryGetFirst key opts = tryGet key opts |> Option.bind List.tryHead
-        let orAsk prompt maybeValue  =
-            maybeValue |> Option.defaultWith (fun _ -> StdIn.read prompt)
+        let hasFlag flag (args: string list) =
+            args |> List.contains flag
 
-        let opts = args |> tokenize |> groupTokens
-        {|
-            isCreateUser = fun () -> tryGet CreateUser opts |> Option.isSome
-            getName = fun () -> tryGetFirst Name opts |> orAsk "Name"
-            getDisplayName = fun () -> tryGetFirst DisplayName opts
-            getAbout = fun () -> tryGetFirst About opts
-            getPicture = fun () -> tryGetFirst Picture opts
-            getNip05 = fun () -> tryGetFirst Nip05 opts
-            isAddRelay = fun () -> tryGetFirst AddRelay opts |> Option.isSome
-            isRemoveRelay = fun () -> tryGetFirst RemoveRelay opts |> Option.isSome
-            getRelaysToAdd = fun () -> tryGet AddRelay opts |> Option.defaultValue []
-            getRelaysToRemove = fun () -> tryGet RemoveRelay opts |> Option.defaultValue []
-            getProxy = fun () -> tryGetFirst Proxy opts
-            isSubscribeAuthor = fun () -> tryGetFirst SubscribeAuthor opts |> Option.isSome
-            isUnsubscribeAuthor = fun () -> tryGetFirst UnsubscribeAuthor opts |> Option.isSome
-            getSubcribeAuthor = fun () -> tryGet SubscribeAuthor opts |> Option.defaultValue []
-            getUnsubcribeAuthor = fun () -> tryGet UnsubscribeAuthor opts |> Option.defaultValue []
-            isSubscribeChannel = fun () -> tryGetFirst SubscribeChannel opts |> Option.isSome
-            isUnsubscribeChannel = fun () -> tryGetFirst UnsubscribeChannel opts |> Option.isSome
-            getSubcribeChannel = fun () -> tryGet SubscribeChannel opts |> Option.defaultValue []
-            getUnsubcribeChannel = fun () -> tryGet UnsubscribeChannel opts |> Option.defaultValue []
-            isListen = fun () -> tryGet Listen opts |> Option.isSome
-            isPublish = fun () -> tryGetFirst Publish opts |> Option.isSome
-            isCreate = fun () -> tryGetFirst Create opts |> Option.isSome
-            getNoteText = fun () -> tryGetFirst Create opts |> orAsk "Note"
-            isPublishToChannel = fun () -> tryGet PublishToChannel opts |> Option.isSome
-            getMessageToChannel = fun () -> tryGet PublishToChannel opts
-            getDataDir = fun () -> tryGetFirst DataDir opts
-            getUserFilePath = fun () -> tryGetFirst User opts |> Option.defaultValue "default-user.json"
-            getSecret = fun () -> tryGetFirst Secret opts
-            isWhoAmI = fun () -> tryGet WhoAmI opts |> Option.isSome
-            isShowMetadata = fun () -> tryGet ShowMetadata opts |> Option.isSome
-            isShowContacts = fun () -> tryGet ShowContacts opts |> Option.isSome
-            isShowPublicKey = fun () -> tryGet ShowPublicKey opts |> Option.isSome
-            isShowSecretKey = fun () -> tryGet ShowSecretKey opts |> Option.isSome
-            isNpubToHex = fun () -> tryGetFirst ConvertNpubToHex opts |> Option.isSome
-            getNpubToHex = fun () -> tryGet ConvertNpubToHex opts |> Option.defaultValue []
-            isHexToNpub = fun () -> tryGet ConvertHexToNpub opts |> Option.isSome
-            getHexToNpub = fun () -> tryGet ConvertHexToNpub opts |> Option.defaultValue []
-            getSinceHoursAgo = fun () -> tryGetFirst SinceHoursAgo opts
-            getLimit = fun () -> tryGetFirst Limit opts
-        |}
+        let skipSafe n list =
+            if n >= List.length list then [] else List.skip n list
+
+    open Helpers
+
+    let private parseGlobal (args: string list) : GlobalOptions =
+        {
+            UserFile = tryFindValue2 "-u" "--user" args |> Option.defaultValue "default-user.json"
+            DataDir = tryFindValue "--datadir" args
+            Proxy = tryFindValue "--proxy" args
+            Secret = tryFindValue "--secret" args
+        }
+
+    let private parseCommands (args: string list) : Command list =
+        let rec parse (args: string list) acc =
+            match args with
+            | [] -> List.rev acc
+
+            | "--create-user" :: rest ->
+                let name = tryFindValue "--name" rest |> Option.defaultWith (fun () -> StdIn.read "Name")
+                let displayName = tryFindValue "--display-name" rest
+                let about = tryFindValue "--about" rest
+                let picture = tryFindValue "--picture" rest
+                let nip05 = tryFindValue "--nip05" rest
+                parse rest (CreateUser(name, displayName, about, picture, nip05) :: acc)
+
+            | "--add-relay" :: rest ->
+                let urls = takeValuesAfter rest
+                parse (skipSafe (List.length urls) rest) (AddRelay urls :: acc)
+
+            | "--remove-relay" :: rest ->
+                let urls = takeValuesAfter rest
+                parse (skipSafe (List.length urls) rest) (RemoveRelay urls :: acc)
+
+            | "--subscribe-author" :: rest ->
+                let npubs = takeValuesAfter rest
+                parse (skipSafe (List.length npubs) rest) (SubscribeAuthor npubs :: acc)
+
+            | "--unsubscribe-author" :: rest ->
+                let npubs = takeValuesAfter rest
+                parse (skipSafe (List.length npubs) rest) (UnsubscribeAuthor npubs :: acc)
+
+            | "--subscribe-channel" :: rest ->
+                let noteIds = takeValuesAfter rest
+                parse (skipSafe (List.length noteIds) rest) (SubscribeChannel noteIds :: acc)
+
+            | "--unsubscribe-channel" :: rest ->
+                let noteIds = takeValuesAfter rest
+                parse (skipSafe (List.length noteIds) rest) (UnsubscribeChannel noteIds :: acc)
+
+            | "--create" :: rest ->
+                let text = takeValuesAfter rest |> List.tryHead |> Option.defaultWith (fun () -> StdIn.read "Note")
+                let publish = hasFlag "--publish" rest || hasFlag "-p" rest
+                parse rest (Create(text, publish) :: acc)
+
+            | "--publish-to-channel" :: rest ->
+                let values = takeValuesAfter rest
+                let channel, message =
+                    match values with
+                    | [] -> None, None
+                    | [c] -> Some c, None
+                    | c :: m :: _ -> Some c, Some m
+                parse (skipSafe (List.length values) rest) (PublishToChannel(channel, message) :: acc)
+
+            | "--listen" :: rest ->
+                let since = tryFindValue "--since-hours-ago" rest |> Option.map Int32.Parse
+                let limit = tryFindValue "--limit" rest |> Option.map Int32.Parse
+                parse rest (Listen(since, limit) :: acc)
+
+            | "--whoami" :: rest ->
+                parse rest (WhoAmI :: acc)
+
+            | "--show-metadata" :: rest ->
+                parse rest (ShowMetadata :: acc)
+
+            | "--show-contacts" :: rest ->
+                parse rest (ShowContacts :: acc)
+
+            | "--show-public-key" :: rest ->
+                parse rest (ShowPublicKey :: acc)
+
+            | "--show-secret-key" :: rest ->
+                parse rest (ShowSecretKey :: acc)
+
+            | "--npub-to-hex" :: rest ->
+                let npubs = takeValuesAfter rest
+                parse (skipSafe (List.length npubs) rest) (NpubToHex npubs :: acc)
+
+            | "--hex-to-npub" :: rest ->
+                let hexes = takeValuesAfter rest
+                parse (skipSafe (List.length hexes) rest) (HexToNpub hexes :: acc)
+
+            | _ :: rest ->
+                parse rest acc
+
+        parse args []
+
+    let parse (args: string[]) : ParsedArgs =
+        let argList = Array.toList args
+        {
+            Global = parseGlobal argList
+            Commands = parseCommands argList
+        }

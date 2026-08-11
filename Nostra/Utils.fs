@@ -1,6 +1,18 @@
 namespace Nostra
 
 open System
+open System.IO
+open System.Runtime.InteropServices
+
+module DataDirectory =
+    let getDefaultDataDirectory () =
+        let appName = "nostra"
+        if RuntimeInformation.IsOSPlatform(OSPlatform.Windows) then
+            Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), appName)
+        elif RuntimeInformation.IsOSPlatform(OSPlatform.OSX) then
+            Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), "Library", "Application Support", appName)
+        else
+            Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), $".{appName}")
 
 module Utils =
     open System
