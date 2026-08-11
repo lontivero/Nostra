@@ -272,7 +272,7 @@ let buildQueryForFilter (now : DateTime) (filter: Request.Filter) =
     | head :: tail -> List.fold (fun acc expr -> And(acc, expr)) head tail
     |> fun es -> Projection("SELECT e.serialized_event FROM events e", es, filter.Limit)
 
-let rec materializeExpression expression scope =
+let rec materializeExpression defaultLimit maxLimit expression scope =
     let paramName (Column(table, name)) = $"@s{scope}_{table}_{name}"
     let columnName (Column(table, name)) = $"{table}.{name}"
 
@@ -289,34 +289,36 @@ let rec materializeExpression expression scope =
             let parameterNames = String.concat "," (parameterValues |> List.map fst)
             $"{columnName column} IN ({parameterNames})", parameterValues, scope
         | SelectList query ->
-            let select, parameterValues, scope = materializeQuery query (scope + 1)
+            let select, parameterValues, scope = materializeQuery defaultLimit maxLimit query (scope + 1)
             $"{columnName column} IN ({select})", parameterValues, scope
     | And (expr1, expr2) ->
-        let s1, params1, scope = materializeExpression expr1 scope
-        let s2, params2, scope = materializeExpression expr2 scope
+        let s1, params1, scope = materializeExpression defaultLimit maxLimit expr1 scope
+        let s2, params2, scope = materializeExpression defaultLimit maxLimit expr2 scope
         $"{s1} AND {s2}", params1 @ params2, scope
 
 and
-    materializeQuery (x: Query) (scope:int) =
+    materializeQuery (defaultLimit : int) (maxLimit : int) (x: Query) (scope:int) =
     match x with
     | Projection(select, where, limit) ->
-        let whereStr, expr, scope = materializeExpression where scope
-        let limitStr = limit |> Option.map (fun l -> $" ORDER BY e.created_at DESC, e.id DESC LIMIT {l}") |> Option.defaultValue ""
-        $"{select} WHERE {whereStr}{limitStr}", expr, scope
+        let whereStr, expr, scope = materializeExpression defaultLimit maxLimit where scope
+        let effectiveLimit = limit
+                             |> Option.defaultValue defaultLimit
+                             |> fun l -> Int32.Min(l, maxLimit)
+        $"{select} WHERE {whereStr} ORDER BY e.created_at DESC, e.id DESC LIMIT {effectiveLimit}", expr, scope
 
-let buildQueryForFilters (filters: Request.Filter list) (now : DateTime) =
+let buildQueryForFilters (filters: Request.Filter list) (defaultLimit : int) (maxLimit : int) (now : DateTime) =
     let queries =
         filters
         |> List.map (buildQueryForFilter now)
-        |> List.fold (fun (i, qs) query -> let s, p, j = materializeQuery query i in (j + 1, (s, p) :: qs) )  (0, [])
+        |> List.fold (fun (i, qs) query -> let s, p, j = materializeQuery defaultLimit maxLimit query i in (j + 1, (s, p) :: qs) )  (0, [])
         |> snd
         |> List.rev
     match queries with
     | [] -> ("SELECT e.serialized_event FROM events e WHERE 1=0", [])
     | head :: tail -> List.fold (fun (select1, parms1) (select2, parms2) -> ($"{select1} UNION {select2}", parms1 @ parms2)) head tail
 
-let fetchEvents connection filters now =
-    let query, parameters = buildQueryForFilters filters now
+let fetchEvents connection defaultLimit maxLimit filters now =
+    let query, parameters = buildQueryForFilters filters defaultLimit maxLimit now
     connection
     |> Sql.query query
     |> Sql.parameters parameters

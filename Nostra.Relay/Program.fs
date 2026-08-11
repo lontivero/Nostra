@@ -1,4 +1,4 @@
-﻿module Relay
+module Relay
 
 open System.Collections.Generic
 open System.IO
@@ -37,7 +37,6 @@ let rec processRequestLoop
     match msg with
     | Text, data, true ->
         let requestText = UTF8.toString data
-        env.logger.logDebug requestText
         processRequest requestText
         |> AsyncResult.map (function
         | [ ] -> ()
@@ -96,43 +95,51 @@ open Suave.Filters
 open Suave.RequestErrors
 open Suave.Successful
 open Thoth.Json.Net
+open Relay.Configuration
+open Relay.InfoDocument
 
-let relayInformationDocument =
-    OK <| InfoDocument.getRelayInfoDocument ()
+let relayInformationDocument (relayInfo: RelayInfo) =
+    OK <| InfoDocument.getRelayInfoDocument relayInfo
     >=> Writers.setMimeType """application/json; charset="utf-8";"""
     >=> Writers.setHeader "Access-Control-Allow-Origin" "*"
     >=> Writers.setHeader "Access-Control-Allow-Headers" "*"
     >=> Writers.setHeader "Access-Control-Allow-Methods" "*"
 
-let buildContext (connectionString : string) (logger: TextWriter) =
+let buildContext (config: RelayConfig) (logger: TextWriter) =
+    let connectionString = $"Data Source={config.DatabasePath}"
     let dbconnection = Database.openConnection connectionString
     Database.createTables dbconnection
+
+    let limits = config.RelayInfo.Limitation
+    let ifEnabled minLevel action =
+        if config.LogLevel >= minLevel then action else ignore
 
     {
         eventStore = {
             saveEvent = Database.saveEvent dbconnection
             deleteEvents = Database.deleteEvents dbconnection
-            fetchEvents = Database.fetchEvents dbconnection
+            fetchEvents = Database.fetchEvents dbconnection limits.DefaultLimit limits.MaxLimit
         }
         clientRegistry = createClientRegistry ()
         logger = {
-            logInfo = logger.WriteLine
-            logDebug = logger.WriteLine
-            logError = logger.WriteLine
+            logInfo =  ifEnabled LogLevel.Info logger.WriteLine
+            logDebug = ifEnabled LogLevel.Debug logger.WriteLine
+            logError = ifEnabled LogLevel.Error logger.WriteLine
         }
+        config = config
     }
 
 open System
 
-let app : WebPart =
-    let env = buildContext "Data Source=mydb.db" Console.Out
+let app (config: RelayConfig) : WebPart =
+    let env = buildContext config Console.Out
     let wsHandler = Monad.injectedWith env (webSocketHandler ())
 
     let handleRequest continuation (ctx : HttpContext) =
         let acceptHeader = ctx.request.header("Accept")
         let upgradeHeader = ctx.request.header("Upgrade")
         match acceptHeader, upgradeHeader with
-        | Choice1Of2 "application/nostr+json", _ -> relayInformationDocument ctx
+        | Choice1Of2 "application/nostr+json", _ -> relayInformationDocument env.config.RelayInfo ctx
         | _, Choice1Of2 "websocket" -> handShake continuation ctx
         | _ -> OK "Use a Nostr client" ctx
 
@@ -157,7 +164,7 @@ let app : WebPart =
                     |> Async.RunSynchronously
                     |> function
                     | Ok events -> OK events ctx
-                    | Error e -> ServerErrors.INTERNAL_ERROR (e.ToString()) ctx
+                    | Result.Error e -> ServerErrors.INTERNAL_ERROR (e.ToString()) ctx
 
                 | Result.Error e -> BAD_REQUEST e ctx
     ]
@@ -168,17 +175,29 @@ let loggingOptions =
   { Literate.LiterateOptions.create() with
       getLogLevelText = function Verbose->"V" | Debug->"D" | Info->"I" | Warn->"W" | Error->"E" | Fatal->"F" }
 
-let logger =
-  LiterateConsoleTarget(
-    name = [|"Example"|],
-    minLevel = Verbose,
-    options = loggingOptions,
-    outputTemplate = "[{level}] {timestampUtc:o} {message} [{source}]{exceptions}"
-  ) :> Logger
+let toSuaveLogLevel = function
+    | Configuration.LogLevel.Verbose -> Verbose
+    | Configuration.LogLevel.Debug -> Debug
+    | Configuration.LogLevel.Info -> Info
+    | Configuration.LogLevel.Warn -> Warn
+    | Configuration.LogLevel.Error -> Error
+    | Configuration.LogLevel.Fatal -> Fatal
+
+let createLogger (logLevel: Configuration.LogLevel) =
+    LiterateConsoleTarget(
+        name = [|"Nostra"|],
+        minLevel = toSuaveLogLevel logLevel,
+        options = loggingOptions,
+        outputTemplate = "[{level}] {timestampUtc:o} {message} [{source}]{exceptions}"
+    ) :> Logger
 
 [<EntryPoint>]
 let main argv =
+    let configPath = if argv.Length > 0 then argv.[0] else "config.json"
+    let config = RelayConfig.load configPath
+
     let cts = new CancellationTokenSource()
+    let logger = createLogger config.LogLevel
     let conf = { defaultConfig with cancellationToken = cts.Token; logger = logger }
-    startWebServer conf app
-    0 // return an integer exit code
+    startWebServer conf (app config)
+    0

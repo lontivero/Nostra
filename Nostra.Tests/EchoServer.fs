@@ -13,7 +13,7 @@ module EchoServer =
     let startEchoServer ct =
         let port = 8000 + Random.Shared.Next(2000)
         let local = Suave.Http.HttpBinding.createSimple HTTP "127.0.0.1" port
-        
+
         let conf = { defaultConfig with cancellationToken = ct; bindings = [local] }
         let listening, server = startWebServerAsync conf (
             path "/" >=> handShake (
@@ -42,7 +42,7 @@ module Client =
     open System.Text
     open Nostra.Client
     open Nostra.Monad
-    
+
     let createClient port =
         let ws = new ClientWebSocket()
         let ctx = Communication.buildContext ws Console.Out
@@ -58,14 +58,16 @@ module Client =
 
     let createClientDefaultPort () =
         createClient 8080
-        
-module Relay =    
+
+module Relay =
     open Relay
-    
-    let startRelay ct =
-        let env = buildContext "Data Source=:memory:" TextWriter.Null //Console.Out
+    open Relay.Configuration
+    open Nostra.Relay.InfoDocument
+
+    let startRelayWithConfig ct (config: RelayConfig) =
+        let env = buildContext config TextWriter.Null
         let wsHandler = Monad.injectedWith env (webSocketHandler ())
-        
+
         let port = 8000 + Random.Shared.Next(2000)
         let local = Http.HttpBinding.createSimple HTTP "127.0.0.1" port
         let conf = { defaultConfig with cancellationToken = ct; bindings = [local] }
@@ -73,4 +75,15 @@ module Relay =
 
         Async.Start(server, ct)
         listening |> Async.RunSynchronously |> ignore
-        port       
+        port
+
+    let startRelay ct =
+        let uniqueDb = $"file:test{Guid.NewGuid():N}?mode=memory&cache=shared"
+        let config = { RelayConfig.defaults with DatabasePath = uniqueDb }
+        startRelayWithConfig ct config
+
+    let startRelayWithLimitations ct (limitations: Limitation) =
+        let uniqueDb = $"file:test{Guid.NewGuid():N}?mode=memory&cache=shared"
+        let relayInfo = { RelayInfo.defaults with Limitation = limitations }
+        let config = { RelayConfig.defaults with DatabasePath = uniqueDb; RelayInfo = relayInfo }
+        startRelayWithConfig ct config

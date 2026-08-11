@@ -8,8 +8,10 @@ open System
 open Nostra
 open Nostra.ClientContext
 open Nostra.Relay
+open Nostra.Relay.InfoDocument
 open Relay.Request
 open Relay.Response
+open Relay.Configuration
 
 type SubscriptionStore = Dictionary<SubscriptionId, Filter list>
 
@@ -17,6 +19,7 @@ type Context = {
     eventStore : EventStore
     clientRegistry : ClientRegistry
     logger: IOLogger
+    config: RelayConfig
 }
 
 type EventProcessingError =
@@ -42,26 +45,34 @@ let ackError eventId error =
 let noticeError error =
     BusinessError (RMNotice error)
 
-let canPersistEvent (event : Event) = result {
+let canPersistEvent (event : Event) (limits : Limitation) = result {
+    do! Result.requireTrue (ackError event.Id "invalid: too many tags") (event.Tags.Length <= limits.MaxEventTags)
+    do! Result.requireTrue (ackError event.Id "invalid: content too large") (event.Content.Length <= limits.MaxContentLength)
+    do! Result.requireTrue (ackError event.Id "invalid: content too large") (event.Content.Length <= limits.MaxContentLength)
     do! Result.requireTrue (ackError event.Id "invalid: the signature is incorrect") (Event.verify event)
     }
 
-let verifyCanSubscribe subscriptionId filters (subscriptionStore : SubscriptionStore) = result {
+let verifyCanSubscribe (subscriptionId : SubscriptionId) filters (subscriptionStore : SubscriptionStore) (limits : Limitation) = result {
+    do! Result.requireTrue (noticeError "too large subscription id") (subscriptionId.Length <= limits.MaxSubidLength)
     let filterCount = Seq.length filters
-    do! Result.requireTrue (noticeError "Too many filters") (filterCount < 5)
+    do! Result.requireTrue (noticeError "too many filters") (filterCount <= limits.MaxFilters)
     let isNewSubscription = not (subscriptionStore.ContainsKey subscriptionId)
     let subscriptionCount = Seq.length subscriptionStore
-    do! Result.requireTrue (noticeError "Too many subscriptions") (subscriptionCount < 10 || not isNewSubscription)
+    do! Result.requireTrue (noticeError "too many subscriptions") (subscriptionCount < limits.MaxSubscriptions || not isNewSubscription)
     }
 
 let processRequest (env : Context) (subscriptionStore : SubscriptionStore) requestText = asyncResult {
+    let limits = env.config.RelayInfo.Limitation
+
     let! request =
         deserialize requestText
         |> Result.mapError (fun _ -> noticeError "invalid: it was not possible to deserialize")
 
+    do! Result.requireTrue (noticeError "message too large") (requestText.Length <= limits.MaxMessageLength)
+
     match request with
     | CMEvent event ->
-        do! (canPersistEvent event)
+        do! (canPersistEvent event limits)
         let serializedEvent = requestText[(requestText.IndexOf "{")..(requestText.LastIndexOf "}")]
 
         let preprocessedEvent = preprocessEvent event serializedEvent
@@ -70,7 +81,7 @@ let processRequest (env : Context) (subscriptionStore : SubscriptionStore) reque
         return! Ok [ RMAck (event.Id, true, "added") ]
 
     | CMSubscribe(subscriptionId, filters) ->
-        do! (verifyCanSubscribe subscriptionId filters subscriptionStore)
+        do! (verifyCanSubscribe subscriptionId filters subscriptionStore limits)
         subscriptionStore[subscriptionId] <- filters
         let! matchingEvents =
             filterEvents env.eventStore.fetchEvents filters DateTime.Now
