@@ -1,4 +1,4 @@
-﻿module Client
+module Client
 
 open System
 open System.Collections.Generic
@@ -106,7 +106,15 @@ let publish event relays =
 let Main args =
     let opts = CliArgsParser.parseArgs args
 
-    let userFilePath = opts.getUserFilePath ()
+    let dataDir =
+        opts.getDataDir ()
+        |> Option.defaultWith Nostra.DataDirectory.getDefaultDataDirectory
+        |> DataDirectory.ensureDirectoryExists
+
+    let userFilePath =
+        let path = opts.getUserFilePath ()
+        if IO.Path.IsPathRooted path then path
+        else DataDirectory.resolvePath dataDir path
 
     if opts.isCreateUser() then
         let user = User.createUser

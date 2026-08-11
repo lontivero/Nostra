@@ -2,6 +2,7 @@ module Relay
 
 open System.Collections.Generic
 open System.IO
+open System.Runtime.InteropServices
 open System.Threading
 open Microsoft.FSharp.Control
 open FsToolkit.ErrorHandling
@@ -191,10 +192,34 @@ let createLogger (logLevel: Configuration.LogLevel) =
         outputTemplate = "[{level}] {timestampUtc:o} {message} [{source}]{exceptions}"
     ) :> Logger
 
+let getDefaultDataDirectory () =
+    if RuntimeInformation.IsOSPlatform(OSPlatform.Windows) then
+        Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "Nostra")
+    elif RuntimeInformation.IsOSPlatform(OSPlatform.OSX) then
+        Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), "Library", "Application Support", "Nostra")
+    else
+        Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".nostra")
+
 [<EntryPoint>]
 let main argv =
-    let configPath = if argv.Length > 0 then argv.[0] else "config.json"
+    let args = argv |> Array.toList
+
+    let dataDir, remainingArgs =
+        match args with
+        | "--datadir" :: dir :: rest -> dir, rest
+        | _ -> getDefaultDataDirectory (), args
+
+    Directory.CreateDirectory(dataDir) |> ignore
+
+    let configPath =
+        match remainingArgs with
+        | path :: _ when not (path.StartsWith("--")) -> path
+        | _ -> Path.Combine(dataDir, "config.json")
+
     let config = RelayConfig.load configPath
+    let config =
+        if Path.IsPathRooted config.DatabasePath then config
+        else { config with DatabasePath = Path.Combine(dataDir, config.DatabasePath) }
 
     let cts = new CancellationTokenSource()
     let logger = createLogger config.LogLevel

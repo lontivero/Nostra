@@ -18,6 +18,7 @@ module CliArgsParser =
 
     type Token =
         | User
+        | DataDir
         | AddRelay
         | RemoveRelay
         | CreateUser
@@ -57,6 +58,7 @@ module CliArgsParser =
         [for x in args do
            yield match x with
                  | "-u" | "--user" -> User
+                 | "--datadir" -> DataDir
                  | "--add-relay" -> AddRelay
                  | "--remove-relay" -> RemoveRelay
                  | "--create-user" -> CreateUser
@@ -147,6 +149,7 @@ module CliArgsParser =
             getNoteText = fun () -> tryGetFirst Create opts |> orAsk "Note"
             isPublishToChannel = fun () -> tryGet PublishToChannel opts |> Option.isSome
             getMessageToChannel = fun () -> tryGet PublishToChannel opts
+            getDataDir = fun () -> tryGetFirst DataDir opts
             getUserFilePath = fun () -> tryGetFirst User opts |> Option.defaultValue "default-user.json"
             getSecret = fun () -> tryGetFirst Secret opts
             isWhoAmI = fun () -> tryGet WhoAmI opts |> Option.isSome
