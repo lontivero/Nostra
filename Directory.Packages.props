@@ -7,6 +7,13 @@
     <PackageVersion Include="LibChaCha20" Version="1.0.1" />
     <PackageVersion Include="NBitcoin.Secp256k1" Version="3.1.0" />
     <PackageVersion Include="Thoth.Json.Net" Version="11.0.0" />
+    <!-- Avalonia UI -->
+    <PackageVersion Include="Avalonia" Version="12.1.0" />
+    <PackageVersion Include="Avalonia.Desktop" Version="12.1.0" />
+    <PackageVersion Include="Avalonia.Themes.Fluent" Version="12.1.0" />
+    <PackageVersion Include="Avalonia.FuncUI" Version="2.0.0" />
+    <PackageVersion Include="Avalonia.FuncUI.Elmish" Version="2.0.0" />
+    <PackageVersion Include="Elmish" Version="5.0.2" />
     <PackageVersion Include="FsToolkit.ErrorHandling" Version="4.3.0" />
     <PackageVersion Include="Fumble" Version="2.0.1" />
     <PackageVersion Include="Suave" Version="2.6.2" />
