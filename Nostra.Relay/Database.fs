@@ -289,7 +289,8 @@ let rec materializeExpression defaultLimit maxLimit expression scope =
             let parameterNames = String.concat "," (parameterValues |> List.map fst)
             $"{columnName column} IN ({parameterNames})", parameterValues, scope
         | SelectList query ->
-            let select, parameterValues, scope = materializeQuery defaultLimit maxLimit query (scope + 1)
+            let baseSelect, limitStr, parameterValues, scope = materializeQuery defaultLimit maxLimit query (scope + 1)
+            let select = baseSelect + limitStr
             $"{columnName column} IN ({select})", parameterValues, scope
     | And (expr1, expr2) ->
         let s1, params1, scope = materializeExpression defaultLimit maxLimit expr1 scope
@@ -301,16 +302,25 @@ and
     match x with
     | Projection(select, where, limit) ->
         let whereStr, expr, scope = materializeExpression defaultLimit maxLimit where scope
+        let baseQuery = $"{select} WHERE {whereStr}"
         let effectiveLimit = limit
                              |> Option.defaultValue defaultLimit
                              |> fun l -> Int32.Min(l, maxLimit)
-        $"{select} WHERE {whereStr} ORDER BY e.created_at DESC, e.id DESC LIMIT {effectiveLimit}", expr, scope
+        let limitStr = $" ORDER BY e.created_at DESC, e.id DESC LIMIT {effectiveLimit}"
+        baseQuery, limitStr, expr, scope
 
 let buildQueryForFilters (filters: Request.Filter list) (defaultLimit : int) (maxLimit : int) (now : DateTime) =
     let queries =
         filters
         |> List.map (buildQueryForFilter now)
-        |> List.fold (fun (i, qs) query -> let s, p, j = materializeQuery defaultLimit maxLimit query i in (j + 1, (s, p) :: qs) )  (0, [])
+        |> List.fold (fun (i, qs) query ->
+            let baseQuery, limitStr, p, j = materializeQuery defaultLimit maxLimit query i
+            // If there's an explicit LIMIT in the filter, wrap in subquery for correct UNION behavior
+            let finalQuery =
+                match (match query with Projection(_, _, limit) -> limit) with
+                | Some _ -> $"SELECT * FROM ({baseQuery}{limitStr})"
+                | None -> baseQuery + limitStr
+            (j + 1, (finalQuery, p) :: qs)) (0, [])
         |> snd
         |> List.rev
     match queries with
