@@ -1,6 +1,8 @@
 module RelayIntegrationTests
 
 open Nostra
+open Nostra.Relay.Configuration
+open Nostra.Relay.InfoDocument
 open Xunit
 open FsUnit.Xunit
 open Xunit.Abstractions
@@ -37,7 +39,7 @@ type ``Relay Accept Queries``(output:ITestOutputHelper) =
         $ ``subscribe to all events``
         |>  verify (fun test ->
             let bob = test.Users[Bob]
-            let contents = bob.ReceivedEvents |> Seq.map (fun x -> x.Content)
+            let contents = bob.ReceivedEvents |> Seq.map _.Content
             should contain "hello" contents)
 
     [<Fact>]
@@ -54,6 +56,21 @@ type ``Relay Accept Queries``(output:ITestOutputHelper) =
             should equal 2 events.Count
             should equal "hello 2" events[0].Content
             should equal "hello 3" events[1].Content
+            )
+
+    [<Fact>]
+    let ``Can receive limited results subscription from limitation`` () =
+        ``start relay with limits`` { Limitation.defaults with MaxLimit = 1 }
+        $ given Alice
+        $ ``connect to relay``
+        $ ``send event`` (note "hello 1")
+        $ ``send event`` (note "hello 2")
+        $ ``send event`` (note "hello 3")
+        $ ``subscribe to all events``
+        |>  verify (fun test ->
+            let events = test.Users[Alice].ReceivedEvents
+            should equal 1 events.Count
+            should equal "hello 3" events[0].Content
             )
 
 type ``Relay Nip09``(output:ITestOutputHelper) =
@@ -74,6 +91,27 @@ type ``Relay Nip09``(output:ITestOutputHelper) =
             should equal 1 user.ReceivedEvents.Count
             should equal Kind.Delete user.ReceivedEvents[0].Kind)
 
+type ``Relay Nip11``(output:ITestOutputHelper) =
+
+    [<Fact>]
+    let ``Can send respecting limitations`` () =
+        ``start relay with limits`` { Limitation.defaults with MaxContentLength = 6; MaxEventTags = 2; MaxMessageLength = 400; MaxSubidLength = 3  }
+        $ given Alice
+        $ ``connect to relay``
+        $ ``send event`` (note "hello")
+        $ ``send event`` (note "hello again!") // must fail because MaxContentLength
+        $ ``send event`` (noteWithTags "hola" [Tag.create "p" ["p1"]; Tag.create "q" ["q1"] ])
+        $ ``send event`` (noteWithTags "hola" [Tag.create "p" ["p1"]; Tag.create "q" ["q1"]; Tag.create "r" ["r1"] ]) // must fail because MaxEventTags
+        $ ``send raw``   (fun _ -> $"""["REQ","sub", {{ {System.String(' ', 500)} }}]""" ) // must fail because MaxMessageLngth
+        $ ``subscribe to`` "larger-than-3" (latest 1) // must fail because MaxSubidLength
+        |>  verify (fun test ->
+            let user = currentUser test
+            should equal 4 user.Errors.Count
+            should equal "invalid: content too large" user.Errors[0]
+            should equal "invalid: too many tags" user.Errors[1]
+            should equal "message too large" user.Errors[2]
+            should equal "too large subscription id" user.Errors[3]
+            )
 
 type ``Relay Nip16``(output:ITestOutputHelper) =
 

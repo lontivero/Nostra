@@ -2,9 +2,9 @@ module TestingFramework
 
 open System.Collections.Generic
 open System.Threading
-open NBitcoin.Secp256k1
 open Nostra
 open Nostra.Client.Response
+open Nostra.Relay.InfoDocument
 open Nostra.Tests
 open FsUnit.Xunit
 
@@ -19,7 +19,17 @@ type User = {
     ReceivedEvents : Event ResizeArray
     Secret : SecretKey
     Connection : Connection option
+    Errors : string ResizeArray
 }
+
+module User =
+    let createDefault () = {
+        Secret = SecretKey.createNewRandom()
+        SentEvents = ResizeArray<Event>()
+        ReceivedEvents = ResizeArray<Event>()
+        Connection = None
+        Errors = ResizeArray<string>()
+    }
 
 type TestContext = {
     Users: Dictionary<string, User>
@@ -42,12 +52,18 @@ let ``start relay`` () = async {
     return testContext
 }
 
+let ``start relay with limits`` (limits : Limitation) = async {
+    use cts = new CancellationTokenSource()
+    let port = Relay.startRelayWithLimitations cts.Token limits
+    let testContext = { CurrentUser = ""; Users = Dictionary<string, User>(); Port = port }
+    return testContext
+}
+
 let ``given`` user : TestStep =
     fun ctx ->
         let alreadyExists, knownUser = ctx.Users.TryGetValue(user)
         if not alreadyExists then
-            let secret = SecretKey.createNewRandom ()
-            ctx.Users.Add (user, { Secret = secret; SentEvents = ResizeArray<Event>(); ReceivedEvents = ResizeArray<Event>(); Connection = None })
+            ctx.Users.Add (user, User.createDefault ())
         async { return { ctx with CurrentUser = user } }
 
 let ``connect to relay`` : TestStep =
@@ -77,19 +93,22 @@ let ``wait for event`` subscriptionId : TestStep =
         match user.Connection with
         | Some conn ->
             do! receiveEvents conn.Receiver user.ReceivedEvents
-        | None _ ->
+        | None ->
             failwith $"User '{ctx.CurrentUser}' is not connected."
         return ctx
     }
 
 let ``subscribe to`` subscriptionId (filterFactory: FilterFactory): TestStep =
-    let rec receiveEvents subscriptionId receiver (events: Event ResizeArray) = async {
+    let rec receiveEvents subscriptionId receiver (user: User) = async {
         let! response = receiver
         match response with
         | Ok (RMEvent(subscriptionId, event)) ->
-            events.Add event
-            do! receiveEvents subscriptionId receiver events
+            user.ReceivedEvents.Add event
+            do! receiveEvents subscriptionId receiver user
         | Ok (RMEOSE subscriptionId) ->
+            ()
+        | Ok (RMNotice(notice)) ->
+            user.Errors.Add notice
             ()
         | _ -> failwith "Unexpected message"
     }
@@ -99,8 +118,8 @@ let ``subscribe to`` subscriptionId (filterFactory: FilterFactory): TestStep =
         match user.Connection with
         | Some conn ->
             do! conn.Sender $"""["REQ","{subscriptionId}",{filterFactory ctx}]"""
-            do! receiveEvents subscriptionId conn.Receiver user.ReceivedEvents
-        | None _ ->
+            do! receiveEvents subscriptionId conn.Receiver user
+        | None ->
             failwith $"User '{ctx.CurrentUser}' is not connected."
         return ctx
     }
@@ -123,23 +142,31 @@ let eventsFrom who : FilterFactory =
         let author = user.Secret |> SecretKey.getPubKey |> fun x -> AuthorId.toBytes x |> Utils.toHex
         $"""{{"authors": ["{author}"]}}"""
 
-let ``send event`` eventFactory : TestStep =
+let ``send raw`` messageFactory : TestStep =
     fun ctx -> async {
         let user = currentUser ctx
         match user.Connection with
         | Some conn ->
-            let signedEvent = eventFactory ctx |> Event.sign user.Secret
-            let serializedEvent = Event.serialize signedEvent
-            do! conn.Sender $"""["EVENT",{serializedEvent}]"""
+            do! conn.Sender (messageFactory ctx)
             let! response = conn.Receiver
             match response with
             | Ok (RMACK(_, true, _)) -> should equal true true
-            | Ok (RMACK(_, false, reason)) -> failwith reason
+            | Ok (RMACK(_, false, reason)) -> user.Errors.Add reason
+            | Ok (RMNotice(notice)) -> user.Errors.Add notice
+            | Error e -> user.Errors.Add (e.ToString())
             | _ -> failwith "error"
-            user.SentEvents.Add signedEvent
         | None ->
             failwith $"User '{ctx.CurrentUser}' is not connected."
         return ctx
+    }
+let ``send event`` eventFactory : TestStep =
+    fun ctx -> async {
+        let user = currentUser ctx
+        let signedEvent = eventFactory ctx |> Event.sign user.Secret
+        let serializedEvent = Event.serialize signedEvent
+        let! ctx' = ``send raw`` (fun _ -> $"""["EVENT",{serializedEvent}]""") ctx
+        user.SentEvents.Add signedEvent
+        return ctx'
     }
 
 let verify f ctx =
@@ -149,6 +176,9 @@ let verify f ctx =
 
 let note content ctx =
     Event.createNote content
+
+let noteWithTags content tags ctx =
+    Event.create Kind.Text tags content
 
 let replaceableNote content : EventFactory =
     fun ctx -> Event.create Kind.ReplaceableStart [] content
