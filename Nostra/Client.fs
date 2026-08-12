@@ -269,7 +269,7 @@ module Client =
         let pushToRelay = Monad.injectedWith ctx (Communication.sender ())
         let receiveLoop onReceiving = Monad.injectedWith ctx (Communication.startReceiving onReceiving)
         async {
-            use connectCancellationToken = new CancellationTokenSource(TimeSpan.FromSeconds(3))
+            use connectCancellationToken = new CancellationTokenSource(TimeSpan.FromSeconds(3.0))
             let cts = CancellationTokenSource.CreateLinkedTokenSource(Async.DefaultCancellationToken, connectCancellationToken.Token)
             do! ws.ConnectAsync (uri, cts.Token) |> Async.AwaitTask
 
