@@ -1,4 +1,4 @@
-﻿module Client
+module Client
 
 open System
 open System.Collections.Generic
@@ -58,8 +58,6 @@ let displayResponse (contacts : Map<byte[], Contact>) (addContact: ContactKey ->
             Console.WriteLine $"{eventLink} {authorLink} 📅 {event.CreatedAt}"
             Console.ForegroundColor <- enum<ConsoleColor> -1
             Console.WriteLine (event.Content.Trim())
-            //Console.ForegroundColor <- ConsoleColor.DarkGray
-            //Console.WriteLine (event.Tags |> List.map (fun (t, vs) -> $"{t}:{vs}"))
             Console.WriteLine ()
             receivedEvents.Add eventId |> ignore
 
@@ -102,116 +100,102 @@ let publish event relays =
     let nevent = Shareable.encodeNevent (event.Id, shareableRelays, Some event.PubKey, Some event.Kind )
     Console.WriteLine nevent
 
-[<EntryPoint>]
-let Main args =
-    let opts = CliArgsParser.parseArgs args
-
-    let userFilePath = opts.getUserFilePath ()
-
-    if opts.isCreateUser() then
-        let user = User.createUser
-                       (opts.getName())
-                       (opts.getDisplayName())
-                       (opts.getAbout())
-                       (opts.getPicture())
-                       (opts.getNip05())
+let executeCommand (globalOpts: CliArgsParser.GlobalOptions) userFilePath cmd =
+    match cmd with
+    | CliArgsParser.CreateUser (name, displayName, about, picture, nip05) ->
+        let user = User.createUser name displayName about picture nip05
         User.save userFilePath user
 
-    if opts.isAddRelay() then
-        let relays = opts.getRelaysToAdd() |> List.map Uri
-        let proxy = opts.getProxy()
-        User.apply userFilePath (User.addRelays relays proxy)
+    | CliArgsParser.AddRelay urls ->
+        let relays = urls |> List.map Uri
+        User.apply userFilePath (User.addRelays relays globalOpts.Proxy)
 
-    if opts.isRemoveRelay() then
-        let relays = opts.getRelaysToRemove() |> List.map Uri
+    | CliArgsParser.RemoveRelay urls ->
+        let relays = urls |> List.map Uri
         User.apply userFilePath (User.removeRelays relays)
 
-    if opts.isSubscribeAuthor() then
-        let authors = opts.getSubcribeAuthor() |> List.map Shareable.decodeNpub |> List.lift |> Option.get
+    | CliArgsParser.SubscribeAuthor npubs ->
+        let authors = npubs |> List.map Shareable.decodeNpub |> List.lift |> Option.get
         User.apply userFilePath (User.subscribeAuthors authors)
 
-    if opts.isUnsubscribeAuthor() then
-        let authors = opts.getSubcribeAuthor() |> List.map Shareable.decodeNpub |> List.lift |> Option.get
+    | CliArgsParser.UnsubscribeAuthor npubs ->
+        let authors = npubs |> List.map Shareable.decodeNpub |> List.lift |> Option.get
         User.apply userFilePath (User.unsubscribeAuthors authors)
 
-    if opts.isSubscribeChannel() then
-        let channels = opts.getSubcribeChannel() |> List.map Shareable.decodeNote |> List.lift |> Option.get
+    | CliArgsParser.SubscribeChannel noteIds ->
+        let channels = noteIds |> List.map Shareable.decodeNote |> List.lift |> Option.get
         User.apply userFilePath (User.subscribeChannels channels)
 
-    if opts.isUnsubscribeChannel() then
-        let channels = opts.getSubcribeChannel() |> List.map Shareable.decodeNote |> List.lift |> Option.get
+    | CliArgsParser.UnsubscribeChannel noteIds ->
+        let channels = noteIds |> List.map Shareable.decodeNote |> List.lift |> Option.get
         User.apply userFilePath (User.unsubscribeChannels channels)
 
-    if opts.isCreate() then
-        let message = opts.getNoteText()
+    | CliArgsParser.Create (text, shouldPublish) ->
         let user = User.load userFilePath
-        let secret = opts.getSecret() |> Option.bind (Shareable.decodeNsec) |> Option.defaultValue user.secret
-        let referenceTags = Content.extractReferences message
-        let event = Event.create Kind.Text referenceTags message |> Event.sign secret
-        if opts.isPublish() then
+        let secret = globalOpts.Secret |> Option.bind Shareable.decodeNsec |> Option.defaultValue user.secret
+        let referenceTags = Content.extractReferences text
+        let event = Event.create Kind.Text referenceTags text |> Event.sign secret
+        if shouldPublish then
             publish event user.relays
         Console.WriteLine (Event.serialize event)
-        Console.WriteLine (Shareable.encodeNevent (event.Id, [], Some event.PubKey, Some event.Kind  ))
+        Console.WriteLine (Shareable.encodeNevent (event.Id, [], Some event.PubKey, Some event.Kind))
 
-    if opts.isPublishToChannel() then
+    | CliArgsParser.PublishToChannel (channelOpt, messageOpt) ->
         let channel', message =
-            match opts.getMessageToChannel() with
-            | None  | Some [] -> (StdIn.read "Channel"), StdIn.read "Message"
-            | Some [c] -> c, StdIn.read "Message"
-            | Some (c::msgs) -> c, msgs |> List.head
+            match channelOpt, messageOpt with
+            | None, None -> StdIn.read "Channel", StdIn.read "Message"
+            | Some c, None -> c, StdIn.read "Message"
+            | Some c, Some m -> c, m
+            | None, Some m -> StdIn.read "Channel", m
 
-        let channel = Shareable.decodeNpub channel' |> Option.map (fun pubkey -> EventId (AuthorId.toBytes pubkey) ) |> Option.get
+        let channel = Shareable.decodeNpub channel' |> Option.map (fun pubkey -> EventId (AuthorId.toBytes pubkey)) |> Option.get
         let user = User.load userFilePath
         let event = Event.createChannelMessage channel message |> Event.sign user.secret
         publish event user.relays
 
-    if opts.isWhoAmI() then
+    | CliArgsParser.WhoAmI ->
         let user = User.load userFilePath
         Console.WriteLine $"name:\t{user.metadata.name}"
 
-    if opts.isShowMetadata() then
+    | CliArgsParser.ShowMetadata ->
         let user = User.load userFilePath
         Console.WriteLine (user.metadata |> Metadata.Encode.metadata |> Encode.toString 2)
 
-    if opts.isShowContacts() then
+    | CliArgsParser.ShowContacts ->
         let user = User.load userFilePath
         Console.WriteLine (user.contacts |> List.map Contact.Encode.contact |> Encode.list |> Encode.toString 2)
 
-    if opts.isShowPublicKey() then
+    | CliArgsParser.ShowPublicKey ->
         let user = User.load userFilePath
         Console.WriteLine (user.secret |> SecretKey.getPubKey |> Shareable.encodeNpub)
 
-    if opts.isShowSecretKey() then
+    | CliArgsParser.ShowSecretKey ->
         let user = User.load userFilePath
         Console.WriteLine (user.secret |> Shareable.encodeNsec)
 
-    if opts.isNpubToHex() then
-        opts.getNpubToHex()
+    | CliArgsParser.NpubToHex npubs ->
+        npubs
         |> List.map Shareable.decodeNpub
         |> List.iter (function
             | Some authorId -> Console.WriteLine (Utils.toHex (AuthorId.toBytes authorId))
             | None -> Console.WriteLine "The entered npub is not well formed")
 
-    if opts.isHexToNpub() then
-        opts.getHexToNpub()
+    | CliArgsParser.HexToNpub hexes ->
+        hexes
         |> List.map AuthorId.parse
         |> List.iter (function
             | Ok authorId -> Console.WriteLine (Shareable.encodeNpub authorId)
             | Error _ -> Console.WriteLine "The entered hex is not a valid public key")
 
-    if opts.isListen() then
+    | CliArgsParser.Listen (sinceHoursAgo, limitOpt) ->
         let user = User.load userFilePath
 
         let since =
-            opts.getSinceHoursAgo()
-            |> Option.map Int32.Parse
-            |> Option.defaultValue -40
-            |> fun hours -> DateTime.UtcNow.AddHours -hours
+            sinceHoursAgo
+            |> Option.defaultValue 40
+            |> fun hours -> DateTime.UtcNow.AddHours(-(float hours))
 
-        let limit =
-            opts.getLimit()
-            |> Option.map Int32.Parse
-            |> Option.defaultValue 1_000
+        let limit = limitOpt |> Option.defaultValue 1_000
 
         let filter =
             Filter.all
@@ -284,15 +268,7 @@ let Main args =
         let display = display contactMap addContact
         let connectSubscribeAndListen uri = async {
             let! relay = connectToRelay uri
-            [filterAuthors; filterChannels]
-            |> List.choose id
-            |> relay.subscribe "all"
-
-            filterMetadata
-            |> Option.iter (fun filter -> relay.subscribe "metadata" [filter])
-
-            filterChannelMetadata
-            |> Option.iter (fun filter -> relay.subscribe "channelmetadata" [filter])
+            relay.subscribe "all" [(Filter.all |> fun f -> { f with Kinds = [Kind.GitRepositoryAnnouncement; Kind.GitPatch; Kind.GitIssue]})]
             do! relay.startListening display
         }
 
@@ -302,4 +278,22 @@ let Main args =
         |> Async.Parallel
         |> Async.RunSynchronously
         |> ignore
+
+[<EntryPoint>]
+let Main args =
+    let parsed = CliArgsParser.parse args
+
+    let dataDir =
+        let dir = parsed.Global.DataDir |> Option.defaultWith DataDirectory.getDefaultDataDirectory
+        if not (IO.Directory.Exists dir) then IO.Directory.CreateDirectory dir |> ignore
+        dir
+
+    let userFilePath =
+        let path = parsed.Global.UserFile
+        if IO.Path.IsPathRooted path then path
+        else IO.Path.Combine(dataDir, path)
+
+    parsed.Commands
+    |> List.iter (executeCommand parsed.Global userFilePath)
+
     0

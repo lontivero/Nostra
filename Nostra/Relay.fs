@@ -110,11 +110,11 @@ module Relay =
                 |> Decode.andThen ( function
                     | "EVENT" ->
                         Decode.map
-                            (fun event -> CMEvent event)
+                            CMEvent
                             (Decode.index 1 Event.Decode.event)
                     | "CLOSE" ->
                         Decode.map
-                            (fun subscriptionId -> CMUnsubscribe subscriptionId)
+                            CMUnsubscribe
                             (Decode.index 1 Decode.string)
                     | "REQ" ->
                         Decode.map2
@@ -169,14 +169,182 @@ module Relay =
             |> ArraySegment
 
     module InfoDocument =
-        let getRelayInfoDocument () =
-            Encode.object [
-                "name", Encode.string ""
-                "description", Encode.string "Relay without persistence"
-                "pubkey", Encode.string ""
-                "contact", Encode.string "lucasontivero@gmail.com"
-                "supported_nips", Encode.list (List.map Encode.int [1; 2; 4; 9; 11; 12; 16; 20; 33; 40 ])
-                "software", Encode.string "https://github.com/lontivero/Nostra/"
-                "version", Encode.string "0.0.1"
-            ]
-            |> Encode.toString 2
+        type Limitation = {
+            MaxMessageLength: int
+            MaxSubscriptions: int
+            MaxFilters: int
+            MaxLimit: int
+            DefaultLimit: int
+            MaxSubidLength: int
+            MaxEventTags: int
+            MaxContentLength: int
+            MinPowDifficulty: int
+            AuthRequired: bool
+            PaymentRequired: bool
+            RestrictedWrites: bool
+            CreatedAtLowerLimit: int option
+            CreatedAtUpperLimit: int option
+        }
+
+        module Limitation =
+            let defaults = {
+                MaxMessageLength = 524288
+                MaxSubscriptions = 10
+                MaxFilters = 5
+                MaxLimit = 5000
+                DefaultLimit = 50
+                MaxSubidLength = 100
+                MaxEventTags = 2000
+                MaxContentLength = 102400
+                MinPowDifficulty = 0
+                AuthRequired = false
+                PaymentRequired = false
+                RestrictedWrites = false
+                CreatedAtLowerLimit = None
+                CreatedAtUpperLimit = None
+            }
+
+            let decode : Decoder<Limitation> =
+                Decode.object (fun get ->
+                    let defaults = defaults
+                    {
+                        MaxMessageLength = get.Optional.Field "max_message_length" Decode.int |> Option.defaultValue defaults.MaxMessageLength
+                        MaxSubscriptions = get.Optional.Field "max_subscriptions" Decode.int |> Option.defaultValue defaults.MaxSubscriptions
+                        MaxFilters = get.Optional.Field "max_filters" Decode.int |> Option.defaultValue defaults.MaxFilters
+                        MaxLimit = get.Optional.Field "max_limit" Decode.int |> Option.defaultValue defaults.MaxLimit
+                        DefaultLimit = get.Optional.Field "default_limit" Decode.int |> Option.defaultValue defaults.DefaultLimit
+                        MaxSubidLength = get.Optional.Field "max_subid_length" Decode.int |> Option.defaultValue defaults.MaxSubidLength
+                        MaxEventTags = get.Optional.Field "max_event_tags" Decode.int |> Option.defaultValue defaults.MaxEventTags
+                        MaxContentLength = get.Optional.Field "max_content_length" Decode.int |> Option.defaultValue defaults.MaxContentLength
+                        MinPowDifficulty = get.Optional.Field "min_pow_difficulty" Decode.int |> Option.defaultValue defaults.MinPowDifficulty
+                        AuthRequired = get.Optional.Field "auth_required" Decode.bool |> Option.defaultValue defaults.AuthRequired
+                        PaymentRequired = get.Optional.Field "payment_required" Decode.bool |> Option.defaultValue defaults.PaymentRequired
+                        RestrictedWrites = get.Optional.Field "restricted_writes" Decode.bool |> Option.defaultValue defaults.RestrictedWrites
+                        CreatedAtLowerLimit = get.Optional.Field "created_at_lower_limit" Decode.int
+                        CreatedAtUpperLimit = get.Optional.Field "created_at_upper_limit" Decode.int
+                    })
+
+            let encode (limitation: Limitation) =
+                Encode.object [
+                    "max_message_length", Encode.int limitation.MaxMessageLength
+                    "max_subscriptions", Encode.int limitation.MaxSubscriptions
+                    "max_filters", Encode.int limitation.MaxFilters
+                    "max_limit", Encode.int limitation.MaxLimit
+                    "default_limit", Encode.int limitation.DefaultLimit
+                    "max_subid_length", Encode.int limitation.MaxSubidLength
+                    "max_event_tags", Encode.int limitation.MaxEventTags
+                    "max_content_length", Encode.int limitation.MaxContentLength
+                    "min_pow_difficulty", Encode.int limitation.MinPowDifficulty
+                    "auth_required", Encode.bool limitation.AuthRequired
+                    "payment_required", Encode.bool limitation.PaymentRequired
+                    "restricted_writes", Encode.bool limitation.RestrictedWrites
+                    "created_at_lower_limit", Encode.option Encode.int limitation.CreatedAtLowerLimit
+                    "created_at_upper_limit", Encode.option Encode.int limitation.CreatedAtUpperLimit
+                ]
+
+        type RelayInfo = {
+            Name: string
+            Description: string
+            Pubkey: string
+            Contact: string
+            SupportedNips: int list
+            Software: string
+            Version: string
+            Limitation: Limitation
+        }
+
+        module RelayInfo =
+            let defaults = {
+                Name = ""
+                Description = "Nostr Relay"
+                Pubkey = ""
+                Contact = ""
+                SupportedNips = [1; 2; 4; 9; 11; 12; 16; 20; 33; 40]
+                Software = "https://github.com/lontivero/Nostra/"
+                Version = "0.0.1"
+                Limitation = Limitation.defaults
+            }
+
+            let decode : Decoder<RelayInfo> =
+                Decode.object (fun get ->
+                    let defaults = defaults
+                    {
+                        Name = get.Optional.Field "name" Decode.string |> Option.defaultValue defaults.Name
+                        Description = get.Optional.Field "description" Decode.string |> Option.defaultValue defaults.Description
+                        Pubkey = get.Optional.Field "pubkey" Decode.string |> Option.defaultValue defaults.Pubkey
+                        Contact = get.Optional.Field "contact" Decode.string |> Option.defaultValue defaults.Contact
+                        SupportedNips = get.Optional.Field "supported_nips" (Decode.list Decode.int) |> Option.defaultValue defaults.SupportedNips
+                        Software = get.Optional.Field "software" Decode.string |> Option.defaultValue defaults.Software
+                        Version = get.Optional.Field "version" Decode.string |> Option.defaultValue defaults.Version
+                        Limitation = get.Optional.Field "limitation" Limitation.decode |> Option.defaultValue defaults.Limitation
+                    })
+
+            let encode (info: RelayInfo) =
+                Encode.object [
+                    "name", Encode.string info.Name
+                    "description", Encode.string info.Description
+                    "pubkey", Encode.string info.Pubkey
+                    "contact", Encode.string info.Contact
+                    "supported_nips", Encode.list (List.map Encode.int info.SupportedNips)
+                    "software", Encode.string info.Software
+                    "version", Encode.string info.Version
+                    "limitation", Limitation.encode info.Limitation
+                ]
+
+        let getRelayInfoDocument (info: RelayInfo) =
+            RelayInfo.encode info |> Encode.toString 2
+
+    module Configuration =
+        open InfoDocument
+
+        type LogLevel =
+            | Verbose
+            | Debug
+            | Info
+            | Warn
+            | Error
+            | Fatal
+
+        module LogLevel =
+            let fromString = function
+                | "verbose" -> Verbose
+                | "debug" -> Debug
+                | "info" -> Info
+                | "warn" -> Warn
+                | "error" -> Error
+                | "fatal" -> Fatal
+                | _ -> Info
+
+            let decode : Decoder<LogLevel> =
+                Decode.string |> Decode.map (fun s -> fromString (s.ToLowerInvariant()))
+
+        type RelayConfig = {
+            LogLevel: LogLevel
+            DatabasePath: string
+            RelayInfo: RelayInfo
+        }
+
+        module RelayConfig =
+            let defaults = {
+                LogLevel = Info
+                DatabasePath = "relay.db"
+                RelayInfo = RelayInfo.defaults
+            }
+
+            let decode : Decoder<RelayConfig> =
+                Decode.object (fun get ->
+                    let defaults = defaults
+                    {
+                        LogLevel = get.Optional.Field "log_level" LogLevel.decode |> Option.defaultValue defaults.LogLevel
+                        DatabasePath = get.Optional.Field "database_path" Decode.string |> Option.defaultValue defaults.DatabasePath
+                        RelayInfo = get.Optional.Field "relay_info" RelayInfo.decode |> Option.defaultValue defaults.RelayInfo
+                    })
+
+            let load (filePath: string) =
+                if IO.File.Exists(filePath) then
+                    let json = IO.File.ReadAllText(filePath)
+                    match Decode.fromString decode json with
+                    | Ok config -> config
+                    | Result.Error _ -> defaults
+                else
+                    defaults

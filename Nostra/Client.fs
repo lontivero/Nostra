@@ -209,7 +209,7 @@ module Client =
                 let (Monad.Reader r ) = receiveMessage
                 let! message = r ctx
                 callback message
-                do! loop ctx
+                return! loop ctx
             }
             Monad.Reader (fun (ctx: Context) -> loop ctx)
 

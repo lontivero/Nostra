@@ -14,7 +14,7 @@ Nostra.Client is heavily "inspired" on [nostr-commander-rs](https://github.com/8
 The easiest way to have both the relay and the client is by building the nix flake as follow:
 
 ```bash
-$ nix build github:lontivero/nostra?dir=Contrib
+$ nix build github:lontivero/nostra
 ```
 
 # Config File

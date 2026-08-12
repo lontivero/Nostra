@@ -22,13 +22,25 @@ type Kind =
     | ChannelMessage = 42
     | HideMessage = 43
     | MuteUser = 44
+    | GitPatch = 1_617
+    | GitPullRequest = 1_618
+    | GitPullRequestUpdate = 1_619
+    | GitIssue = 1_621
+    | GitIssueReply = 1_622
+    | GitStatusOpen = 1_630
+    | GitStatusApplied = 1_631
+    | GitStatusClosed = 1_632
+    | GitStatusDraft = 1_633
     | ReplaceableStart = 10_000
     | RelayList = 10_002
+    | UserGraspList = 10_317
     | ReplaceableEnd = 20_000
     | EphemeralStart = 20_000
     | EphemeralEnd = 30_000
     | ParameterizableReplaceableStart = 30_000
     | ParameterizableReplaceableEnd = 40_000
+    | GitRepositoryAnnouncement = 30_617
+    | GitRepositoryState = 30_618
 
 [<CompiledName("EventT")>]
 type Event =

@@ -8,8 +8,10 @@ open Microsoft.FSharp.Collections
 open Nostra
 open Nostra.Relay
 
-let connection connectionString =
-    Sql.existingConnection (new SqliteConnection(connectionString))
+let openConnection connectionString =
+    let conn = new SqliteConnection(connectionString)
+    conn.Open()
+    Sql.existingConnection conn
 
 let createTables connection =
 
@@ -59,44 +61,45 @@ let createTables connection =
     |> Sql.executeCommand
     |> (fun result ->
         match result with
-        | Ok rows -> ()
-        | Error exn -> failwith exn.Message)
+        | Ok _ -> ()
+        | Error exn -> raise exn)
 
 let nip16Replacement connection author kind createdAt =
     connection
     |> Sql.query "
         SELECT e.id
         FROM events e INDEXED BY author_index
-        WHERE e.author=@author AND e.kind=@kind AND e.created_at >= @created_at LIMIT 1;"
+        WHERE e.author=@author AND e.kind=@kind AND e.created_at > @created_at LIMIT 1;"
     |> Sql.parameters [
         "@author", Sql.bytes author
         "@kind", Sql.int kind
         "@created_at", Sql.dateTime createdAt ]
-    |> Sql.executeNonQueryAsync
-    |> AsyncResult.map (fun x -> x > 0)
+    |> Sql.executeAsync (fun read -> read.int64 "id")
+    |> AsyncResult.map (fun rows -> rows |> List.isEmpty |> not)
 
 let nip33Replacement connection author kind createdAt value =
     connection
     |> Sql.query "
         SELECT e.id
         FROM events e LEFT JOIN tags t ON e.id=t.event_id
-        WHERE e.author=@author AND e.kind=@kind AND t.name='d' AND t.value=@t_value AND e.created_at >= @created_at LIMIT 1;"
+        WHERE e.author=@author AND e.kind=@kind AND t.name='d' AND t.value=@t_value AND e.created_at > @created_at LIMIT 1;"
     |> Sql.parameters [
         "@author", Sql.bytes author
         "@kind", Sql.int kind
         "@t_value", Sql.string value
         "@created_at", Sql.dateTime createdAt ]
-    |> Sql.executeNonQueryAsync
-    |> AsyncResult.map (fun x -> x > 0)
+    |> Sql.executeAsync (fun read -> read.int64 "id")
+    |> AsyncResult.map (fun rows -> rows |> List.isEmpty |> not)
 
 let save connection eventId author preprocessedEvent = asyncResult {
     let tags = Tag.ungroup preprocessedEvent.Event.Tags
 
-    let! id =
+    let! ids =
         connection
         |> Sql.query
             "INSERT OR IGNORE INTO events(event_hash, author, kind, created_at, expires_at, serialized_event, deleted)
-                VALUES (@event_hash, @author, @kind, @created_at, @expires_at, @serialized_event, @deleted)"
+                VALUES (@event_hash, @author, @kind, @created_at, @expires_at, @serialized_event, @deleted)
+                RETURNING id"
         |> Sql.parameters [
             "@event_hash", Sql.bytes eventId
             "@author", Sql.bytes author
@@ -105,23 +108,26 @@ let save connection eventId author preprocessedEvent = asyncResult {
             "@expires_at", Sql.dateTime (preprocessedEvent.Event |> Event.expirationUnixDateTime |> Option.map Utils.fromUnixTime |> Option.defaultValue DateTime.MaxValue)
             "@serialized_event", Sql.string preprocessedEvent.Serialized
             "@deleted", Sql.bool false ]
-        |> Sql.executeNonQuery
+        |> Sql.executeAsync (fun read -> read.int64 "id")
 
-    if tags.Length > 0 then
-        let! _ =
-            connection
-            |> Sql.executeTransactionAsync [
-                "INSERT OR IGNORE INTO tags(event_id, name, value, created_at, kind)
-                    VALUES (@event_id, @name, @value, @created_at, @kind)",
-                tags
-                |> List.map (fun (key, value) -> [
-                    "@event_id", Sql.int id
-                    "@name", Sql.string key
-                    "@value", Sql.string value
-                    "@created_at", Sql.dateTime preprocessedEvent.Event.CreatedAt
-                    "@kind", Sql.int (int preprocessedEvent.Event.Kind)])]
+    match ids with
+    | [] -> return ()  // INSERT OR IGNORE: row already exists, nothing inserted
+    | id :: _ ->
+        if tags.Length > 0 then
+            let! _ =
+                connection
+                |> Sql.executeTransactionAsync [
+                    "INSERT OR IGNORE INTO tags(event_id, name, value, created_at, kind)
+                        VALUES (@event_id, @name, @value, @created_at, @kind)",
+                    tags
+                    |> List.map (fun (key, value) -> [
+                        "@event_id", Sql.int64 id
+                        "@name", Sql.string key
+                        "@value", Sql.string value
+                        "@created_at", Sql.dateTime preprocessedEvent.Event.CreatedAt
+                        "@kind", Sql.int (int preprocessedEvent.Event.Kind)])]
+            return ()
         return ()
-    return ()
 }
 
 let deleteReplacement connection author kind =
@@ -135,8 +141,8 @@ let deleteReplacement connection author kind =
 let handleReplacement connection author kind createdAt =
     nip16Replacement connection author kind createdAt
     |> AsyncResult.bind(function
-       | true -> AsyncResult.ok ()
-       | false -> deleteReplacement connection author kind |> AsyncResult.ignore)
+       | true -> AsyncResult.ok false  // newer exists, don't save
+       | false -> deleteReplacement connection author kind |> AsyncResult.map (fun _ -> true))  // deleted old, proceed to save
 
 let deleteParameterizedReplacement connection author kind dtag =
     connection
@@ -149,19 +155,18 @@ let deleteParameterizedReplacement connection author kind dtag =
                 WHERE e.kind=@kind
                     AND e.author=@author
                     AND t.name='d'
-                    AND t.value=@dtag
-                ORDER BY t.created_at DESC LIMIT 1)"
+                    AND t.value=@dtag)"
     |> Sql.parameters [
         "@author", Sql.bytes author
         "@kind", Sql.int kind
         "@dtag", Sql.string dtag]
     |> Sql.executeNonQueryAsync
 
-let handleParameterizedReplacement connection author kind createdAt dtag=
+let handleParameterizedReplacement connection author kind createdAt dtag =
     nip33Replacement connection author kind createdAt dtag
     |> AsyncResult.bind(function
-       | true -> AsyncResult.ok ()
-       | false -> deleteParameterizedReplacement connection author kind dtag |> AsyncResult.ignore)
+       | true -> AsyncResult.ok false  // newer exists, don't save
+       | false -> deleteParameterizedReplacement connection author kind dtag |> AsyncResult.map (fun _ -> true))  // deleted old, proceed to save
 
 let saveEvent connection (preprocessedEvent: StoredEvent) = asyncResult {
     let event = preprocessedEvent.Event
@@ -172,12 +177,16 @@ let saveEvent connection (preprocessedEvent: StoredEvent) = asyncResult {
     let createdAt = event.CreatedAt
     let dtag = Tag.findByKey "d" preprocessedEvent.Event.Tags |> List.tryHead |> Option.defaultValue ""
 
-    if Event.isReplaceable event then
-        do! handleReplacement connection author kind createdAt
-    elif Event.isParameterizableReplaceable event then
-        do! handleParameterizedReplacement connection author kind createdAt dtag
+    let! shouldSave =
+        if Event.isReplaceable event then
+            handleReplacement connection author kind createdAt
+        elif Event.isParameterizableReplaceable event then
+            handleParameterizedReplacement connection author kind createdAt dtag
+        else
+            AsyncResult.ok true
 
-    return! save connection eventId author preprocessedEvent |> AsyncResult.ignore
+    if shouldSave then
+        return! save connection eventId author preprocessedEvent |> AsyncResult.ignore
 }
 
 let deleteEvents connection (AuthorId author) eventIds =
@@ -191,7 +200,7 @@ let deleteEvents connection (AuthorId author) eventIds =
         ]
     ]
 
-type Column = | Colum of string * string
+type Column = | Column of string * string
 type Limit = int option
 type Query =
     | Projection of string * Expression * Limit
@@ -214,55 +223,58 @@ let buildQueryForFilter (now : DateTime) (filter: Request.Filter) =
             let fieldValues = values |> List.map sqltype
             Some (In (field, SimpleList fieldValues))
 
-    let notHidden = EqualTo (Colum ("e", "deleted"), Sql.bool false) |> Some
-    let notExpired = GreaterThan (Colum ("e", "expires_at"), Sql.dateTime now) |> Some
+    let notHidden = EqualTo (Column ("e", "deleted"), Sql.bool false) |> Some
+    let notExpired = GreaterThan (Column ("e", "expires_at"), Sql.dateTime now) |> Some
 
     let authCondition =
         filter.Authors
         |> List.map Utils.fromHex
-        |> inConditions (Colum ("e", "author")) Sql.bytes
+        |> inConditions (Column ("e", "author")) Sql.bytes
 
     let idCondition =
         filter.Ids
         |> List.map Utils.fromHex
-        |> inConditions (Colum ("e", "event_hash")) Sql.bytes
+        |> inConditions (Column ("e", "event_hash")) Sql.bytes
 
     let kindCondition table =
         filter.Kinds
         |> List.map int
-        |> inConditions (Colum (table, "kind")) Sql.int
+        |> inConditions (Column (table, "kind")) Sql.int
 
     let sinceCondition table =
         filter.Since
         |> Option.map Utils.toUnixTime
-        |> Option.map (fun since -> GreaterThan (Colum (table, "created_at"), Sql.int (int since)))
+        |> Option.map (fun since -> GreaterThan (Column (table, "created_at"), Sql.int (int since)))
 
     let untilCondition table =
         filter.Until
         |> Option.map Utils.toUnixTime
-        |> Option.map (fun until -> LessThan (Colum (table, "created_at"), Sql.int (int until)))
+        |> Option.map (fun until -> LessThan (Column (table, "created_at"), Sql.int (int until)))
 
     let tagsCondition =
         let tagCondition tag values =
             values
-            |> inConditions (Colum ("t", "value")) Sql.string
+            |> inConditions (Column ("t", "value")) Sql.string
             |> Option.map (fun x -> x :: List.choose id [kindCondition "t"; sinceCondition "t"; untilCondition "t"])
             |> Option.map (fun conditions ->
                 let andExpr = List.reduce (fun acc expr -> And(acc, expr)) conditions
-                let select = Projection ("SELECT t.event_id FROM tags t", And (EqualTo(Colum ("t", "name"), Sql.string tag), andExpr), None)
-                In (Colum ("e", "id"), SelectList select))
+                let select = Projection ("SELECT t.event_id FROM tags t", And (EqualTo(Column ("t", "name"), Sql.string tag), andExpr), None)
+                In (Column ("e", "id"), SelectList select))
 
         filter.Tags
-        |> List.map (fun (tag, values) -> tagCondition tag[1..2] values)
+        |> List.map (fun (tag, values) -> tagCondition tag[1..] values)
 
-    ([notHidden; notExpired; authCondition; kindCondition "e"; idCondition; sinceCondition "e"; untilCondition "e"] @ tagsCondition)
-    |> List.choose id
-    |> List.reduce (fun acc expr -> And(acc, expr))
+    let conditions =
+        ([notHidden; notExpired; authCondition; kindCondition "e"; idCondition; sinceCondition "e"; untilCondition "e"] @ tagsCondition)
+        |> List.choose id
+    match conditions with
+    | [] -> failwith "No conditions specified for query"
+    | head :: tail -> List.fold (fun acc expr -> And(acc, expr)) head tail
     |> fun es -> Projection("SELECT e.serialized_event FROM events e", es, filter.Limit)
 
-let rec materializeExpression expression scope =
-    let paramName (Colum(table, name)) = $"@s{scope}_{table}_{name}"
-    let columnName (Colum(table, name)) = $"{table}.{name}"
+let rec materializeExpression defaultLimit maxLimit expression scope =
+    let paramName (Column(table, name)) = $"@s{scope}_{table}_{name}"
+    let columnName (Column(table, name)) = $"{table}.{name}"
 
     match expression with
     | EqualTo (column, value) -> $"{columnName column} = {paramName column}", [paramName column, value], scope
@@ -277,31 +289,36 @@ let rec materializeExpression expression scope =
             let parameterNames = String.concat "," (parameterValues |> List.map fst)
             $"{columnName column} IN ({parameterNames})", parameterValues, scope
         | SelectList query ->
-            let select, parameterValues, scope = materializeQuery query (scope + 1)
+            let select, parameterValues, scope = materializeQuery defaultLimit maxLimit query (scope + 1)
             $"{columnName column} IN ({select})", parameterValues, scope
     | And (expr1, expr2) ->
-        let s1, params1, scope = materializeExpression expr1 scope
-        let s2, params2, scope = materializeExpression expr2 scope
+        let s1, params1, scope = materializeExpression defaultLimit maxLimit expr1 scope
+        let s2, params2, scope = materializeExpression defaultLimit maxLimit expr2 scope
         $"{s1} AND {s2}", params1 @ params2, scope
 
 and
-    materializeQuery (x: Query) (scope:int) =
+    materializeQuery (defaultLimit : int) (maxLimit : int) (x: Query) (scope:int) =
     match x with
     | Projection(select, where, limit) ->
-        let whereStr, expr, scope = materializeExpression where scope
-        let limitStr = limit |> Option.map (fun l -> $" ORDER BY e.created_at, e.id DESC LIMIT {l}") |> Option.defaultValue ""
-        $"{select} WHERE {whereStr}{limitStr}", expr, scope
+        let whereStr, expr, scope = materializeExpression defaultLimit maxLimit where scope
+        let effectiveLimit = limit
+                             |> Option.defaultValue defaultLimit
+                             |> fun l -> Int32.Min(l, maxLimit)
+        $"{select} WHERE {whereStr} ORDER BY e.created_at DESC, e.id DESC LIMIT {effectiveLimit}", expr, scope
 
-let buildQueryForFilters (filters: Request.Filter list) (now : DateTime) =
-    filters
-    |> List.map (buildQueryForFilter now)
-    |> List.fold (fun (i, qs) query -> let s, p, j = materializeQuery query i in (j + 1, (s, p) :: qs) )  (0, [])
-    |> snd
-    |> List.rev
-    |> List.reduce (fun (select1, parms1) (select2, parms2) -> ($"{select1} UNION {select2}", parms1 @ parms2))
+let buildQueryForFilters (filters: Request.Filter list) (defaultLimit : int) (maxLimit : int) (now : DateTime) =
+    let queries =
+        filters
+        |> List.map (buildQueryForFilter now)
+        |> List.fold (fun (i, qs) query -> let s, p, j = materializeQuery defaultLimit maxLimit query i in (j + 1, (s, p) :: qs) )  (0, [])
+        |> snd
+        |> List.rev
+    match queries with
+    | [] -> ("SELECT e.serialized_event FROM events e WHERE 1=0", [])
+    | head :: tail -> List.fold (fun (select1, parms1) (select2, parms2) -> ($"{select1} UNION {select2}", parms1 @ parms2)) head tail
 
-let fetchEvents connection filters now =
-    let query, parameters = buildQueryForFilters filters now
+let fetchEvents connection defaultLimit maxLimit filters now =
+    let query, parameters = buildQueryForFilters filters defaultLimit maxLimit now
     connection
     |> Sql.query query
     |> Sql.parameters parameters
