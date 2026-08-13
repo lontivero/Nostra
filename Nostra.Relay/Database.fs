@@ -270,7 +270,7 @@ let buildQueryForFilter (now : DateTime) (filter: Request.Filter) =
     match conditions with
     | [] -> failwith "No conditions specified for query"
     | head :: tail -> List.fold (fun acc expr -> And(acc, expr)) head tail
-    |> fun es -> Projection("SELECT e.serialized_event FROM events e", es, filter.Limit)
+    |> fun es -> Projection("SELECT e.serialized_event, e.created_at, e.id FROM events e", es, filter.Limit)
 
 let rec materializeExpression defaultLimit maxLimit expression scope =
     let paramName (Column(table, name)) = $"@s{scope}_{table}_{name}"
@@ -289,9 +289,9 @@ let rec materializeExpression defaultLimit maxLimit expression scope =
             let parameterNames = String.concat "," (parameterValues |> List.map fst)
             $"{columnName column} IN ({parameterNames})", parameterValues, scope
         | SelectList query ->
-            let baseSelect, limitStr, parameterValues, scope = materializeQuery defaultLimit maxLimit query (scope + 1)
-            let select = baseSelect + limitStr
-            $"{columnName column} IN ({select})", parameterValues, scope
+            // Don't add ORDER BY/LIMIT to IN subqueries - we want all matching IDs
+            let baseSelect, _, parameterValues, scope = materializeQuery defaultLimit maxLimit query (scope + 1)
+            $"{columnName column} IN ({baseSelect})", parameterValues, scope
     | And (expr1, expr2) ->
         let s1, params1, scope = materializeExpression defaultLimit maxLimit expr1 scope
         let s2, params2, scope = materializeExpression defaultLimit maxLimit expr2 scope
@@ -310,22 +310,27 @@ and
         baseQuery, limitStr, expr, scope
 
 let buildQueryForFilters (filters: Request.Filter list) (defaultLimit : int) (maxLimit : int) (now : DateTime) =
+    let needsSubquery = List.length filters > 1
     let queries =
         filters
         |> List.map (buildQueryForFilter now)
         |> List.fold (fun (i, qs) query ->
             let baseQuery, limitStr, p, j = materializeQuery defaultLimit maxLimit query i
-            // If there's an explicit LIMIT in the filter, wrap in subquery for correct UNION behavior
+            // When using UNION, wrap in subquery so LIMIT applies to each filter's results
             let finalQuery =
-                match (match query with Projection(_, _, limit) -> limit) with
-                | Some _ -> $"SELECT * FROM ({baseQuery}{limitStr})"
-                | None -> baseQuery + limitStr
+                if needsSubquery then
+                    $"SELECT * FROM ({baseQuery}{limitStr})"
+                else
+                    baseQuery + limitStr
             (j + 1, (finalQuery, p) :: qs)) (0, [])
         |> snd
         |> List.rev
     match queries with
     | [] -> ("SELECT e.serialized_event FROM events e WHERE 1=0", [])
-    | head :: tail -> List.fold (fun (select1, parms1) (select2, parms2) -> ($"{select1} UNION {select2}", parms1 @ parms2)) head tail
+    | [(query, parms)] -> (query, parms)
+    | head :: tail ->
+        let (unionQuery, unionParms) = List.fold (fun (select1, parms1) (select2, parms2) -> ($"{select1} UNION {select2}", parms1 @ parms2)) head tail
+        (unionQuery + " ORDER BY created_at DESC, id DESC", unionParms)
 
 let fetchEvents connection defaultLimit maxLimit filters now =
     let query, parameters = buildQueryForFilters filters defaultLimit maxLimit now
