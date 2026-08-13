@@ -3,6 +3,15 @@ namespace Nostra.Desktop
 open System
 open Nostra
 
+// Navigation
+type AppPage =
+    | HomePage
+    | NotificationsPage
+    | BookmarksPage
+    | SearchPage
+    | SettingsPage
+
+// User profiles
 type UserProfile = {
     AuthorId: AuthorId
     Name: string option
@@ -13,6 +22,7 @@ type UserProfile = {
     IsFollowed: bool
 }
 
+// Feed events
 type FeedEvent = {
     Id: EventId
     Author: AuthorId
@@ -21,58 +31,46 @@ type FeedEvent = {
     CreatedAt: DateTime
     Kind: Kind
     ReplyTo: EventId option
+    Relays: string list
+    RawJson: string
 }
 
+// Search
 type SearchResult =
     | NotSearched
     | Searching
     | Found of UserProfile
     | NotFound of string
 
+// Connection status (for NostrService compatibility)
 type ConnectionStatus =
     | Disconnected
     | Connecting
     | Connected
 
-type Model = {
-    SearchQuery: string
-    SearchResult: SearchResult
-    FollowedUsers: Map<byte[], UserProfile>
-    ProfileCache: Map<byte[], UserProfile>
-    EventCache: Map<byte[], FeedEvent>
-    PendingEventRequests: Set<byte[]>
-    Feed: FeedEvent list
-    RelayUrl: string
-    ConnectionStatus: ConnectionStatus
-    StatusMessage: string
+// Relay connection
+type RelayStatus =
+    | RelayDisconnected
+    | RelayConnecting
+    | RelayConnected
+    | RelayError of string
+
+type RelayError = {
+    Timestamp: DateTime
+    Message: string
 }
 
-type Msg =
-    | UpdateSearchQuery of string
-    | SearchUser
-    | SearchCompleted of Result<UserProfile, string>
-    | FollowUser of AuthorId
-    | UnfollowUser of AuthorId
-    | EventReceived of FeedEvent
-    | ProfileReceived of AuthorId * Profile
-    | RequestProfile of AuthorId
-    | RequestEvents of EventId list
-    | UpdateRelayUrl of string
-    | Connect
-    | ConnectionStatusChanged of ConnectionStatus
-    | SetStatusMessage of string
-    | ClearFeed
+type RelayConfig = {
+    Url: string
+    Status: RelayStatus
+    Enabled: bool
+    Errors: RelayError list
+}
 
-module Model =
-    let init () = {
-        SearchQuery = ""
-        SearchResult = NotSearched
-        FollowedUsers = Map.empty
-        ProfileCache = Map.empty
-        EventCache = Map.empty
-        PendingEventRequests = Set.empty
-        Feed = []
-        RelayUrl = "wss://relay.damus.io"
-        ConnectionStatus = Disconnected
-        StatusMessage = "Enter an npub or hex pubkey to search"
-    }
+// Stats for status panel
+type ConnectionStats = {
+    EventsReceived: int
+    EventsStored: int
+    RelaysConnected: int
+    ActiveSubscriptions: int
+}

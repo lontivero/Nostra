@@ -7,8 +7,19 @@
     </PropertyGroup>
 
     <ItemGroup>
+        <Compile Include="UICmd.fs" />
         <Compile Include="Types.fs" />
         <Compile Include="NostrService.fs" />
+        <Compile Include="Styles.fs" />
+        <Compile Include="Common.fs" />
+        <Compile Include="Feed.fs" />
+        <Compile Include="Navigation.fs" />
+        <Compile Include="Relays.fs" />
+        <Compile Include="Settings.fs" />
+        <Compile Include="Notifications.fs" />
+        <Compile Include="Bookmarks.fs" />
+        <Compile Include="Search.fs" />
+        <Compile Include="Home.fs" />
         <Compile Include="App.fs" />
         <Compile Include="Program.fs" />
     </ItemGroup>
@@ -18,6 +29,7 @@
     </ItemGroup>
 
     <ItemGroup>
+        <PackageReference Include="AsyncImageLoader.Avalonia" />
         <PackageReference Include="Avalonia" />
         <PackageReference Include="Avalonia.Desktop" />
         <PackageReference Include="Avalonia.Themes.Fluent" />
