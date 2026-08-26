@@ -39,6 +39,12 @@ module Styles =
         let replyEventBackground = SolidColorBrush(Color.FromArgb(35uy, 80uy, 80uy, 140uy)) :> IBrush
         let inputBackground = SolidColorBrush(Color.FromRgb(64uy, 68uy, 75uy)) :> IBrush
 
+        // Account and popup colors
+        let mutedText = SolidColorBrush(Color.FromRgb(114uy, 118uy, 125uy)) :> IBrush
+        let avatarPlaceholder = SolidColorBrush(Color.FromRgb(88uy, 101uy, 242uy)) :> IBrush
+        let popupBackground = SolidColorBrush(Color.FromRgb(47uy, 49uy, 54uy)) :> IBrush
+        let borderColor = SolidColorBrush(Color.FromRgb(60uy, 63uy, 68uy)) :> IBrush
+
         let avatarFromBytes (bytes: byte array) =
             if bytes.Length >= 3 then
                 SolidColorBrush(Color.FromRgb(bytes.[0], bytes.[1], bytes.[2])) :> IBrush

@@ -5,22 +5,23 @@ open Avalonia.Controls
 open Avalonia.Controls.Primitives
 open Avalonia.FuncUI.DSL
 open Avalonia.Layout
-open Avalonia.Media
 open Nostra
+open Nostra.Desktop.Infrastructure
+open Nostra.Desktop.Store
 open Styles
 
 module Home =
 
     type Model = {
         Feed: Feed.Model
-        FollowedUsers: Map<byte[], UserProfile>
+        FollowedAuthors: Set<byte[]>  // Just the set of who is followed
         ComposeText: string
     }
 
     type Msg =
         | FeedMsg of Feed.Msg
         | Follow of AuthorId
-        | AddToFollowed of AuthorId  // Just adds to FollowedUsers, no external message
+        | AddToFollowed of AuthorId  // Just adds to FollowedAuthors, no external message
         | Unfollow of AuthorId
         | ProfileUpdated of byte[] * UserProfile
         | UpdateComposeText of string
@@ -32,10 +33,11 @@ module Home =
         | RequestProfile of AuthorId
         | RequestEvents of EventId list
         | PublishNote of string
+        | RequestUrlPreview of string
 
     let init () = {
         Feed = Feed.init ()
-        FollowedUsers = Map.empty
+        FollowedAuthors = Set.empty
         ComposeText = ""
     }
 
@@ -49,63 +51,34 @@ module Home =
                 | Feed.RequestProfile author -> RequestProfile author
                 | Feed.RequestEvents eventIds -> RequestEvents eventIds
                 | Feed.SubscribeAuthor author -> SubscribeToAuthor author
+                | Feed.RequestUrlPreview url -> RequestUrlPreview url
             { model with Feed = newFeed }, externalMsg
 
         | Follow author ->
             let bytes = NostrService.authorIdToBytes author
-            let existingProfile =
-                model.FollowedUsers
-                |> Map.tryFind bytes
-                |> Option.defaultValue {
-                    AuthorId = author
-                    Name = None
-                    DisplayName = None
-                    About = None
-                    Picture = None
-                    Nip05 = None
-                    IsFollowed = true
-                }
-            let updatedProfile = { existingProfile with IsFollowed = true }
-            let updatedUsers = model.FollowedUsers |> Map.add bytes updatedProfile
-            { model with FollowedUsers = updatedUsers }, SubscribeToAuthor author
+            let updatedFollowed = model.FollowedAuthors |> Set.add bytes
+            // Also notify Feed about the follow
+            let newFeed, _ = Feed.update (Feed.AuthorFollowed author) model.Feed
+            { model with FollowedAuthors = updatedFollowed; Feed = newFeed }, SubscribeToAuthor author
 
         | AddToFollowed author ->
             let bytes = NostrService.authorIdToBytes author
-            let existingProfile =
-                model.FollowedUsers
-                |> Map.tryFind bytes
-                |> Option.defaultValue {
-                    AuthorId = author
-                    Name = None
-                    DisplayName = None
-                    About = None
-                    Picture = None
-                    Nip05 = None
-                    IsFollowed = true
-                }
-            let updatedProfile = { existingProfile with IsFollowed = true }
-            let updatedUsers = model.FollowedUsers |> Map.add bytes updatedProfile
-            { model with FollowedUsers = updatedUsers }, NoOp
+            let updatedFollowed = model.FollowedAuthors |> Set.add bytes
+            // Also notify Feed about the follow
+            let newFeed, _ = Feed.update (Feed.AuthorFollowed author) model.Feed
+            { model with FollowedAuthors = updatedFollowed; Feed = newFeed }, NoOp
 
         | Unfollow author ->
             let bytes = NostrService.authorIdToBytes author
-            let updatedUsers =
-                model.FollowedUsers
-                |> Map.change bytes (Option.map (fun p -> { p with IsFollowed = false }))
-            { model with FollowedUsers = updatedUsers }, NoOp
+            let updatedFollowed = model.FollowedAuthors |> Set.remove bytes
+            // Also notify Feed about the unfollow
+            let newFeed, _ = Feed.update (Feed.AuthorUnfollowed author) model.Feed
+            { model with FollowedAuthors = updatedFollowed; Feed = newFeed }, NoOp
 
         | ProfileUpdated (authorBytes, profile) ->
-            let isFollowed =
-                model.FollowedUsers
-                |> Map.tryFind authorBytes
-                |> Option.map (fun p -> p.IsFollowed)
-                |> Option.defaultValue false
-
-            if isFollowed then
-                let updatedUsers = model.FollowedUsers |> Map.add authorBytes profile
-                { model with FollowedUsers = updatedUsers }, NoOp
-            else
-                model, NoOp
+            // Forward to Feed's profile cache
+            let newFeed, _ = Feed.update (Feed.ProfileUpdated (authorBytes, profile)) model.Feed
+            { model with Feed = newFeed }, NoOp
 
         | UpdateComposeText text ->
             { model with ComposeText = text }, NoOp
@@ -169,12 +142,32 @@ module Home =
             ]
         ]
 
-    let private followedUsersPanelView (model: Model) dispatch =
-        let followedUsers =
-            model.FollowedUsers
-            |> Map.toList
-            |> List.filter (fun (_, p) -> p.IsFollowed)
-            |> List.map snd
+    let private followedUsersPanelView (store: DomainStore) (model: Model) dispatch =
+        // Get profiles for followed authors from DomainStore, falling back to Feed's cache
+        let followedProfiles =
+            model.FollowedAuthors
+            |> Set.toList
+            |> List.choose (fun authorBytes ->
+                // Try DomainStore first
+                store.ProfileCache
+                |> Map.tryFind authorBytes
+                |> Option.map (fun cached ->
+                    // Convert to UserProfile for display
+                    let profile: UserProfile = {
+                        AuthorId = cached.Profile.AuthorId
+                        Name = cached.Profile.Name
+                        DisplayName = cached.Profile.DisplayName
+                        About = cached.Profile.About
+                        Picture = cached.Profile.Picture
+                        PictureData = cached.PictureData
+                        Nip05 = cached.Profile.Nip05
+                    }
+                    (authorBytes, profile))
+                // Fall back to Feed's legacy cache
+                |> Option.orElse (
+                    model.Feed.ProfileCache
+                    |> Map.tryFind authorBytes
+                    |> Option.map (fun profile -> (authorBytes, profile))))
 
         Border.create [
             Border.dock Dock.Right
@@ -186,7 +179,7 @@ module Home =
                     DockPanel.children [
                         TextBlock.create (Attrs.subheading @ [
                             TextBlock.dock Dock.Top
-                            TextBlock.text $"Following ({followedUsers.Length})"
+                            TextBlock.text $"Following ({model.FollowedAuthors.Count})"
                             TextBlock.margin (Spacing.bottom 10.0)
                         ])
 
@@ -197,7 +190,7 @@ module Home =
                                     StackPanel.orientation Orientation.Vertical
                                     StackPanel.spacing 5.0
                                     StackPanel.children [
-                                        for user in followedUsers do
+                                        for _, profile in followedProfiles do
                                             Border.create (Attrs.cardSmall @ [
                                                 Border.child (
                                                     DockPanel.create [
@@ -206,14 +199,14 @@ module Home =
                                                                 Button.dock Dock.Right
                                                                 Button.content "x"
                                                                 Button.padding (Thickness(5.0, 0.0))
-                                                                Button.onClick (fun _ -> dispatch (Unfollow user.AuthorId))
+                                                                Button.onClick (fun _ -> dispatch (Unfollow profile.AuthorId))
                                                             ]
                                                             TextBlock.create (Attrs.ellipsisText @ [
                                                                 TextBlock.text (
-                                                                    user.DisplayName
-                                                                    |> Option.orElse user.Name
+                                                                    profile.DisplayName
+                                                                    |> Option.orElse profile.Name
                                                                     |> Option.defaultValue (
-                                                                        let npub = NostrService.formatAuthorId user.AuthorId
+                                                                        let npub = NostrService.formatAuthorId profile.AuthorId
                                                                         npub[..10] + "..."
                                                                     )
                                                                 )
@@ -231,31 +224,23 @@ module Home =
             )
         ]
 
-    let view (model: Model) dispatch =
+    let view (store: DomainStore) (model: Model) dispatch =
         DockPanel.create [
             DockPanel.margin Spacing.small
             DockPanel.children [
-                // Right panel: followed users
-                followedUsersPanelView model dispatch
-
-                // Main content
-                DockPanel.create [
-                    DockPanel.children [
-                        // Compose area at top
-                        Border.create [
-                            Border.dock Dock.Top
-                            Border.child (composeAreaView model dispatch)
-                        ]
-
-                        // Feed header
-                        Border.create [
-                            Border.dock Dock.Top
-                            Border.child (feedHeaderView model dispatch)
-                        ]
-
-                        // Feed content
-                        Feed.view model.Feed (FeedMsg >> dispatch)
-                    ]
+                // Compose area at top
+                Border.create [
+                    Border.dock Dock.Top
+                    Border.child (composeAreaView model dispatch)
                 ]
+
+                // Feed header
+                Border.create [
+                    Border.dock Dock.Top
+                    Border.child (feedHeaderView model dispatch)
+                ]
+
+                // Feed content
+                Feed.view store model.Feed (FeedMsg >> dispatch)
             ]
         ]

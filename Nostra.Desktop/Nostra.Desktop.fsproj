@@ -7,19 +7,35 @@
     </PropertyGroup>
 
     <ItemGroup>
+        <!-- Shared utilities -->
         <Compile Include="UICmd.fs" />
-        <Compile Include="Types.fs" />
-        <Compile Include="NostrService.fs" />
-        <Compile Include="Styles.fs" />
-        <Compile Include="Common.fs" />
-        <Compile Include="Feed.fs" />
-        <Compile Include="Navigation.fs" />
-        <Compile Include="Relays.fs" />
-        <Compile Include="Settings.fs" />
-        <Compile Include="Notifications.fs" />
-        <Compile Include="Bookmarks.fs" />
-        <Compile Include="Search.fs" />
-        <Compile Include="Home.fs" />
+
+        <!-- Domain layer - pure business types -->
+        <Compile Include="Domain\Domain.fs" />
+        <Compile Include="Domain\CachedTypes.fs" />
+        <Compile Include="Domain\ViewModels.fs" />
+
+        <!-- Infrastructure layer - persistence, services, state -->
+        <Compile Include="Infrastructure\Types.fs" />
+        <Compile Include="Infrastructure\DomainStore.fs" />
+        <Compile Include="Infrastructure\Cache.fs" />
+        <Compile Include="Infrastructure\NostrService.fs" />
+
+        <!-- Views layer - UI components -->
+        <Compile Include="Views\Styles.fs" />
+        <Compile Include="Views\Common.fs" />
+        <Compile Include="Views\Connection.fs" />
+        <Compile Include="Views\Feed.fs" />
+        <Compile Include="Views\Navigation.fs" />
+        <Compile Include="Views\Relays.fs" />
+        <Compile Include="Views\Settings.fs" />
+        <Compile Include="Views\Notifications.fs" />
+        <Compile Include="Views\Bookmarks.fs" />
+        <Compile Include="Views\Search.fs" />
+        <Compile Include="Views\StatusBar.fs" />
+        <Compile Include="Views\Home.fs" />
+
+        <!-- Application composition -->
         <Compile Include="App.fs" />
         <Compile Include="Program.fs" />
     </ItemGroup>
@@ -36,6 +52,7 @@
         <PackageReference Include="Avalonia.FuncUI" />
         <PackageReference Include="Avalonia.FuncUI.Elmish" />
         <PackageReference Include="FSharp.Core" />
+        <PackageReference Include="LiteDB" />
     </ItemGroup>
 
 </Project>

@@ -3,6 +3,16 @@ namespace Nostra.Desktop
 open System
 open Nostra
 
+// Account represents a user identity
+type Account = {
+    Name: string
+    PublicKey: AuthorId
+    SecretKey: SecretKey option
+    Picture: string option
+    Relays: string list
+    Following: AuthorId list
+}
+
 // Navigation
 type AppPage =
     | HomePage
@@ -11,16 +21,27 @@ type AppPage =
     | SearchPage
     | SettingsPage
 
-// User profiles
+// Pure domain type - profile data from Nostr (no UI state like IsFollowed)
 type UserProfile = {
     AuthorId: AuthorId
     Name: string option
     DisplayName: string option
     About: string option
     Picture: string option
+    PictureData: byte[] option  // Cached image data
     Nip05: string option
-    IsFollowed: bool
 }
+
+module UserProfile =
+    let empty authorId = {
+        AuthorId = authorId
+        Name = None
+        DisplayName = None
+        About = None
+        Picture = None
+        PictureData = None
+        Nip05 = None
+    }
 
 // Feed events
 type FeedEvent = {
@@ -39,7 +60,7 @@ type FeedEvent = {
 type SearchResult =
     | NotSearched
     | Searching
-    | Found of UserProfile
+    | Found of UserProfile * IsFollowed: bool
     | NotFound of string
 
 // Connection status (for NostrService compatibility)

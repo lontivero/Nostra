@@ -63,6 +63,7 @@ module Client =
             let notes filter = { filter with Kinds = [Kind.Text] }
             let metadata filter = { filter with Kinds = [Kind.Metadata] }
             let contacts filter = { filter with Kinds = [Kind.Contacts] }
+            let relayList filter = { filter with Kinds = [Kind.RelayList] }
             let encryptedMessages filter = { filter with Kinds = [Kind.Encrypted] }
             let channelCreation channels filter = { filter with Ids = channels }
 
@@ -250,10 +251,12 @@ module Client =
                 }
             }
 
-    type RelayConnection = {
+    type RelayClient = {
         publish: Event -> unit
         subscribe: SubscriptionId -> SubscriptionFilter list -> unit
+        unsubscribe: SubscriptionId -> unit
         startListening: (Result<RelayMessage,string> -> unit) -> Async<unit>
+        disconnect: CancellationToken -> Async<unit>
     }
 
     [<CompiledName "Publish">]
@@ -275,11 +278,18 @@ module Client =
 
             let subscribe sid filters = pushToRelay (ClientMessage.CMSubscribe (sid, filters))
             let publish event = pushToRelay (ClientMessage.CMEvent event)
+            let unsubscribe sid = pushToRelay (ClientMessage.CMUnsubscribe sid)
+            let disconnect = fun ct -> async {
+                if ws.State = WebSocketState.Open then
+                   return! ws.CloseAsync(WebSocketCloseStatus.NormalClosure, "Disconnect", ct) |> Async.AwaitTask
+            }
 
             return {
                 publish = publish
                 subscribe = subscribe
+                unsubscribe = unsubscribe
                 startListening = receiveLoop
+                disconnect = disconnect
             }
         }
 
