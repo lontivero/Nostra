@@ -1,7 +1,6 @@
-﻿<Project Sdk="Microsoft.NET.Sdk">
+<Project Sdk="Microsoft.NET.Sdk">
 
     <PropertyGroup>
-        <OutputType>Exe</OutputType>
         <ImplicitUsings>enable</ImplicitUsings>
         <Nullable>enable</Nullable>
     </PropertyGroup>
@@ -9,5 +8,25 @@
     <ItemGroup>
       <ProjectReference Include="..\Nostra\Nostra.fsproj" />
     </ItemGroup>
+
+    <ItemGroup>
+        <None Include="../LICENSE" Pack="true" PackagePath="" />
+    </ItemGroup>
+
+    <PropertyGroup>
+        <PackageId>Nostra.CSharp</PackageId>
+        <Version>0.0.1</Version>
+        <projectUrl>https://github.com/lontivero/Nostra</projectUrl>
+        <requireLicenseAcceptance>false</requireLicenseAcceptance>
+        <description>C# friendly wrapper for the Nostra library</description>
+        <summary>C# interop layer for the Nostr protocol library.</summary>
+        <language>en-US</language>
+        <copyright>Please see LICENSE for more details.</copyright>
+        <tags>NOSTR .NET CSHARP</tags>
+        <releaseNotes>Very first version</releaseNotes>
+        <RepositoryType>git</RepositoryType>
+        <RepositoryUrl>https://github.com/lontivero/nostra</RepositoryUrl>
+        <PackageLicenseFile>LICENSE</PackageLicenseFile>
+    </PropertyGroup>
 
 </Project>

@@ -37,6 +37,7 @@
             code-coverage-report
             zlib # Aot
             jetbrains.rider
+            claude-code
             # Avalonia GUI dependencies
             fontconfig
             freetype
