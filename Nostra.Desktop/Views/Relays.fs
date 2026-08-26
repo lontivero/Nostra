@@ -49,8 +49,8 @@ module Relays =
     let defaultRelays = [
         { Url = "wss://relay.damus.io"; Status = RelayDisconnected; Enabled = true; Errors = [] }
         { Url = "wss://relay.primal.net"; Status = RelayDisconnected; Enabled = true; Errors = [] }
-        { Url = "wss://nos.lol"; Status = RelayDisconnected; Enabled = false; Errors = [] }
-        { Url = "wss://relay.wasabiwallet.io"; Status = RelayDisconnected; Enabled = false; Errors = [] }
+        { Url = "wss://nos.lol"; Status = RelayDisconnected; Enabled = true; Errors = [] }
+        { Url = "wss://relay.wasabiwallet.io"; Status = RelayDisconnected; Enabled = true; Errors = [] }
     ]
 
     let init () = {

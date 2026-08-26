@@ -1,91 +1,397 @@
 namespace Nostra.Desktop
 
-open System.Text.RegularExpressions
+open System.Diagnostics
+open System.IO
 open Avalonia
 open Avalonia.Controls
 open Avalonia.Controls.Primitives
 open Avalonia.FuncUI
 open Avalonia.FuncUI.DSL
+open Avalonia.Input
 open Avalonia.Layout
 open Avalonia.Media
+open Avalonia.Media.Imaging
 open AsyncImageLoader
 open Nostra
+open Nostra.Desktop.Infrastructure
+open Nostra.Desktop.Store
 open Styles
 
 module Feed =
 
-    // Image URL pattern for common image formats
-    let private imageUrlPattern = Regex(@"https?://[^\s]+\.(?:jpg|jpeg|png|gif|webp)(?:\?[^\s]*)?", RegexOptions.IgnoreCase ||| RegexOptions.Compiled)
+    /// Create an image from a byte array (cached image data)
+    let private imageFromBytes (bytes: byte[]) (width: float) (height: float) (stretch: Stretch) =
+        Image.create [
+            Image.width width
+            Image.height height
+            Image.stretch stretch
+            Image.init (fun img ->
+                use stream = new MemoryStream(bytes)
+                img.Source <- new Bitmap(stream))
+        ]
 
-    type ContentPart =
-        | TextPart of string
-        | ImagePart of string
+    /// Create an image from URL (async loaded)
+    let private imageFromUrl (url: string) (width: float) (height: float) (stretch: Stretch) =
+        Image.create [
+            Image.width width
+            Image.height height
+            Image.stretch stretch
+            Image.init (fun img -> ImageLoader.SetSource(img, url))
+        ]
 
-    let private parseContent (content: string) : ContentPart list =
-        let matches = imageUrlPattern.Matches(content)
-        if matches.Count = 0 then
-            [ TextPart content ]
-        else
-            let parts = ResizeArray<ContentPart>()
-            let mutable lastIndex = 0
+    /// Create a profile image - uses cached bytes if available, falls back to URL
+    let private profileImage (profile: UserProfile option) (width: float) (height: float) (stretch: Stretch) =
+        match profile with
+        | Some p ->
+            match p.PictureData, p.Picture with
+            | Some bytes, _ ->
+                imageFromBytes bytes width height stretch
+            | None, Some url ->
+                imageFromUrl url width height stretch
+            | None, None ->
+                Image.create []
+        | None ->
+            Image.create []
 
-            for m in matches do
-                // Add text before this match
-                if m.Index > lastIndex then
-                    let text = content.Substring(lastIndex, m.Index - lastIndex).Trim()
-                    if text.Length > 0 then
-                        parts.Add(TextPart text)
+    let private cachedImage (url: string) (width: float) (height: float) (stretch: Stretch) =
+        imageFromUrl url width height stretch
 
-                // Add the image URL
-                parts.Add(ImagePart m.Value)
-                lastIndex <- m.Index + m.Length
+    let private cachedImageConstrained (url: string) (maxWidth: float) (maxHeight: float) (stretch: Stretch) =
+        Image.create [
+            Image.maxWidth maxWidth
+            Image.maxHeight maxHeight
+            Image.stretch stretch
+            Image.init (fun img -> ImageLoader.SetSource(img, url))
+        ]
 
-            // Add remaining text after last match
-            if lastIndex < content.Length then
-                let text = content.Substring(lastIndex).Trim()
-                if text.Length > 0 then
-                    parts.Add(TextPart text)
+    // URL preview data
+    type PreviewData = {
+        Image: string option
+        Title: string option
+        Description: string option
+        SiteName: string option
+    }
 
-            parts |> Seq.toList
+    // Twitter/X tweet preview data
+    type TweetData = {
+        AuthorName: string
+        AuthorHandle: string
+        Content: string
+        ProfileImage: string option
+    }
 
-    let private renderContentPart (part: ContentPart) : Types.IView =
+    // URL preview state - must be defined before renderContentPart
+    type UrlPreview =
+        | PreviewPending
+        | PreviewLoaded of PreviewData
+        | TweetPreviewLoaded of TweetData
+        | PreviewNotAvailable
+
+    let private openUrlInBrowser (url: string) =
+        try
+            let psi = ProcessStartInfo(url, UseShellExecute = true)
+            Process.Start(psi) |> ignore
+        with _ -> ()
+
+    let private renderContentPart
+        (profileCache: Map<byte[], UserProfile>)
+        (eventCache: Map<byte[], FeedEvent>)
+        (urlPreviewCache: Map<string, UrlPreview>)
+        (requestUrlPreview: string -> unit)
+        (part: Content.ContentPart) : Types.IView =
         match part with
-        | TextPart text ->
+        | Content.TextPart text ->
             TextBlock.create (Attrs.wrappedText @ [
                 TextBlock.text text
             ])
-        | ImagePart url ->
+        | Content.ImagePart url ->
             Border.create [
                 Border.margin (Thickness(0.0, 8.0))
                 Border.cornerRadius (CornerRadius 8.0)
                 Border.clipToBounds true
+                Border.child (cachedImageConstrained url 400.0 300.0 Stretch.Uniform)
+            ]
+        | Content.UrlPart url ->
+            let previewState = urlPreviewCache |> Map.tryFind url
+            // Request preview if not yet requested
+            if previewState.IsNone then
+                requestUrlPreview url
+
+            match previewState with
+            | Some (PreviewLoaded data) ->
+                // Full preview card with image, title, description, URL
+                Border.create [
+                    Border.margin (Thickness(0.0, 8.0))
+                    Border.cornerRadius (CornerRadius 8.0)
+                    Border.background (SolidColorBrush(Color.FromArgb(40uy, 100uy, 100uy, 120uy)))
+                    Border.borderBrush (SolidColorBrush(Color.FromArgb(60uy, 150uy, 150uy, 150uy)))
+                    Border.borderThickness (Thickness 1.0)
+                    Border.cursor (new Cursor(StandardCursorType.Hand))
+                    Border.onPointerPressed (fun _ -> openUrlInBrowser url)
+                    Border.child (
+                        StackPanel.create [
+                            StackPanel.orientation Orientation.Vertical
+                            StackPanel.children [
+                                // Preview image (if available)
+                                match data.Image with
+                                | Some imgUrl ->
+                                    Border.create [
+                                        Border.cornerRadius (CornerRadius(8.0, 8.0, 0.0, 0.0))
+                                        Border.clipToBounds true
+                                        Border.child (cachedImageConstrained imgUrl 400.0 200.0 Stretch.UniformToFill)
+                                    ]
+                                | None -> ()
+
+                                // Text content
+                                StackPanel.create [
+                                    StackPanel.orientation Orientation.Vertical
+                                    StackPanel.margin (Thickness 12.0)
+                                    StackPanel.spacing 4.0
+                                    StackPanel.children [
+                                        // Site name
+                                        match data.SiteName with
+                                        | Some siteName ->
+                                            TextBlock.create [
+                                                TextBlock.text siteName
+                                                TextBlock.foreground Colors.muted
+                                                TextBlock.fontSize FontSizes.tiny
+                                            ]
+                                        | None -> ()
+
+                                        // Title
+                                        match data.Title with
+                                        | Some title ->
+                                            TextBlock.create [
+                                                TextBlock.text title
+                                                TextBlock.fontWeight FontWeight.SemiBold
+                                                TextBlock.textWrapping TextWrapping.Wrap
+                                                TextBlock.maxLines 2
+                                            ]
+                                        | None -> ()
+
+                                        // Description
+                                        match data.Description with
+                                        | Some desc ->
+                                            let shortDesc = if desc.Length > 150 then desc.Substring(0, 147) + "..." else desc
+                                            TextBlock.create [
+                                                TextBlock.text shortDesc
+                                                TextBlock.foreground Colors.muted
+                                                TextBlock.textWrapping TextWrapping.Wrap
+                                                TextBlock.fontSize FontSizes.small
+                                                TextBlock.maxLines 3
+                                            ]
+                                        | None -> ()
+
+                                        // URL
+                                        TextBlock.create [
+                                            TextBlock.text url
+                                            TextBlock.foreground Colors.link
+                                            TextBlock.fontSize FontSizes.tiny
+                                            TextBlock.textTrimming TextTrimming.CharacterEllipsis
+                                        ]
+                                    ]
+                                ]
+                            ]
+                        ]
+                    )
+                ]
+
+            | Some (TweetPreviewLoaded tweet) ->
+                // Twitter/X tweet card
+                Border.create [
+                    Border.margin (Thickness(0.0, 8.0))
+                    Border.cornerRadius (CornerRadius 12.0)
+                    Border.background (SolidColorBrush(Color.FromArgb(50uy, 29uy, 155uy, 240uy)))
+                    Border.borderBrush (SolidColorBrush(Color.FromArgb(80uy, 29uy, 155uy, 240uy)))
+                    Border.borderThickness (Thickness 1.0)
+                    Border.padding (Thickness 12.0)
+                    Border.cursor (new Cursor(StandardCursorType.Hand))
+                    Border.onPointerPressed (fun _ -> openUrlInBrowser url)
+                    Border.child (
+                        StackPanel.create [
+                            StackPanel.orientation Orientation.Vertical
+                            StackPanel.spacing 8.0
+                            StackPanel.children [
+                                // Header with X logo and author info
+                                DockPanel.create [
+                                    DockPanel.children [
+                                        // X logo on the right
+                                        TextBlock.create [
+                                            TextBlock.dock Dock.Right
+                                            TextBlock.text "𝕏"
+                                            TextBlock.fontSize 18.0
+                                            TextBlock.foreground (SolidColorBrush(Color.FromRgb(29uy, 155uy, 240uy)))
+                                        ]
+                                        // Author info
+                                        StackPanel.create [
+                                            StackPanel.orientation Orientation.Horizontal
+                                            StackPanel.spacing 8.0
+                                            StackPanel.children [
+                                                // Profile image
+                                                match tweet.ProfileImage with
+                                                | Some imgUrl ->
+                                                    Border.create [
+                                                        Border.width 40.0
+                                                        Border.height 40.0
+                                                        Border.cornerRadius (CornerRadius 20.0)
+                                                        Border.clipToBounds true
+                                                        Border.child (cachedImage imgUrl 40.0 40.0 Stretch.UniformToFill)
+                                                    ]
+                                                | None ->
+                                                    Border.create [
+                                                        Border.width 40.0
+                                                        Border.height 40.0
+                                                        Border.cornerRadius (CornerRadius 20.0)
+                                                        Border.background (SolidColorBrush(Color.FromRgb(29uy, 155uy, 240uy)))
+                                                        Border.child (
+                                                            TextBlock.create [
+                                                                TextBlock.text (tweet.AuthorName.Substring(0, 1).ToUpper())
+                                                                TextBlock.horizontalAlignment HorizontalAlignment.Center
+                                                                TextBlock.verticalAlignment VerticalAlignment.Center
+                                                                TextBlock.fontWeight FontWeight.Bold
+                                                                TextBlock.foreground Brushes.White
+                                                            ]
+                                                        )
+                                                    ]
+                                                // Name and handle
+                                                StackPanel.create [
+                                                    StackPanel.orientation Orientation.Vertical
+                                                    StackPanel.verticalAlignment VerticalAlignment.Center
+                                                    StackPanel.children [
+                                                        TextBlock.create [
+                                                            TextBlock.text tweet.AuthorName
+                                                            TextBlock.fontWeight FontWeight.SemiBold
+                                                        ]
+                                                        TextBlock.create [
+                                                            TextBlock.text tweet.AuthorHandle
+                                                            TextBlock.foreground Colors.muted
+                                                            TextBlock.fontSize FontSizes.small
+                                                        ]
+                                                    ]
+                                                ]
+                                            ]
+                                        ]
+                                    ]
+                                ]
+
+                                // Tweet content
+                                TextBlock.create [
+                                    TextBlock.text tweet.Content
+                                    TextBlock.textWrapping TextWrapping.Wrap
+                                    TextBlock.maxLines 6
+                                ]
+                            ]
+                        ]
+                    )
+                ]
+
+            | Some PreviewPending ->
+                // Show loading indicator
+                Border.create [
+                    Border.margin (Thickness(0.0, 8.0))
+                    Border.padding (Thickness 12.0)
+                    Border.cornerRadius (CornerRadius 8.0)
+                    Border.background (SolidColorBrush(Color.FromArgb(30uy, 100uy, 100uy, 100uy)))
+                    Border.child (
+                        StackPanel.create [
+                            StackPanel.orientation Orientation.Vertical
+                            StackPanel.spacing 4.0
+                            StackPanel.children [
+                                TextBlock.create [
+                                    TextBlock.text "Loading preview..."
+                                    TextBlock.foreground Colors.muted
+                                    TextBlock.fontSize FontSizes.small
+                                ]
+                                TextBlock.create [
+                                    TextBlock.text url
+                                    TextBlock.foreground Colors.link
+                                    TextBlock.fontSize FontSizes.tiny
+                                    TextBlock.textTrimming TextTrimming.CharacterEllipsis
+                                    TextBlock.cursor (new Cursor(StandardCursorType.Hand))
+                                    TextBlock.onPointerPressed (fun _ -> openUrlInBrowser url)
+                                ]
+                            ]
+                        ]
+                    )
+                ]
+
+            | Some PreviewNotAvailable | None ->
+                // Simple clickable URL
+                TextBlock.create [
+                    TextBlock.text url
+                    TextBlock.foreground Colors.link
+                    TextBlock.textWrapping TextWrapping.Wrap
+                    TextBlock.fontSize FontSizes.small
+                    TextBlock.cursor (new Cursor(StandardCursorType.Hand))
+                    TextBlock.onPointerPressed (fun _ -> openUrlInBrowser url)
+                ]
+        | Content.HashtagPart tag ->
+            TextBlock.create [
+                TextBlock.text $"#{tag}"
+                TextBlock.foreground Colors.link
+            ]
+        | Content.MentionPart (authorId, _relays) ->
+            let authorBytes = NostrService.authorIdToBytes authorId
+            let displayName =
+                profileCache
+                |> Map.tryFind authorBytes
+                |> Option.bind (fun p -> p.DisplayName |> Option.orElse p.Name)
+                |> Option.defaultValue (
+                    let npub = NostrService.formatAuthorId authorId
+                    "@" + npub[..12] + "...")
+            TextBlock.create [
+                TextBlock.text (if displayName.StartsWith("@") then displayName else "@" + displayName)
+                TextBlock.foreground Colors.link
+                TextBlock.fontWeight FontWeight.SemiBold
+            ]
+        | Content.EventPart (eventId, _relays, _author) ->
+            let eventBytes = EventId.toBytes eventId
+            let displayText =
+                eventCache
+                |> Map.tryFind eventBytes
+                |> Option.map (fun e ->
+                    let preview = if e.Content.Length > 50 then e.Content.Substring(0, 47) + "..." else e.Content
+                    $"📝 {preview}")
+                |> Option.defaultValue (
+                    let noteId = Shareable.encodeNote eventId
+                    "📝 " + noteId[..15] + "...")
+            Border.create [
+                Border.background (SolidColorBrush(Color.FromArgb(30uy, 100uy, 100uy, 255uy)))
+                Border.cornerRadius (CornerRadius 4.0)
+                Border.padding (Thickness(6.0, 3.0))
+                Border.margin (Thickness(0.0, 2.0))
                 Border.child (
-                    Image.create [
-                        Image.maxWidth 400.0
-                        Image.maxHeight 300.0
-                        Image.stretch Stretch.Uniform
-                        Image.init (fun img -> ImageLoader.SetSource(img, url))
+                    TextBlock.create [
+                        TextBlock.text displayText
+                        TextBlock.foreground Colors.link
+                        TextBlock.textWrapping TextWrapping.Wrap
+                        TextBlock.fontSize FontSizes.small
                     ]
                 )
             ]
 
-    let private renderContent (content: string) : Types.IView =
-        let parts = parseContent content
+    let private renderContent
+        (profileCache: Map<byte[], UserProfile>)
+        (eventCache: Map<byte[], FeedEvent>)
+        (urlPreviewCache: Map<string, UrlPreview>)
+        (requestUrlPreview: string -> unit)
+        (content: string) : Types.IView =
+        let parts = Content.parseContent content
         if parts.Length = 1 then
             match parts[0] with
-            | TextPart text ->
+            | Content.TextPart text ->
                 TextBlock.create (Attrs.wrappedText @ [
                     TextBlock.text text
                 ])
-            | ImagePart url ->
-                renderContentPart (ImagePart url)
+            | part ->
+                renderContentPart profileCache eventCache urlPreviewCache requestUrlPreview part
         else
             StackPanel.create [
                 StackPanel.orientation Orientation.Vertical
                 StackPanel.spacing 4.0
                 StackPanel.children [
                     for part in parts do
-                        renderContentPart part
+                        renderContentPart profileCache eventCache urlPreviewCache requestUrlPreview part
                 ]
             ]
 
@@ -93,13 +399,14 @@ module Feed =
     type DialogState =
         | NoDialog
         | ShowingEventInfo of FeedEvent
-        | ShowingAuthorInfo of AuthorId * UserProfile option
+        | ShowingAuthorInfo of AuthorId * UserProfile option * IsFollowed: bool
 
     type Model = {
         Events: FeedEvent list
         EventCache: Map<byte[], FeedEvent>
         ProfileCache: Map<byte[], UserProfile>
-        PendingEventRequests: Set<byte[]>
+        UrlPreviewCache: Map<string, UrlPreview>
+        FollowedAuthors: Set<byte[]>  // Track followed status separately
         CurrentDialog: DialogState
     }
 
@@ -116,18 +423,24 @@ module Feed =
         | CloseDialog
         // Profile follow status update
         | AuthorFollowed of AuthorId
+        | AuthorUnfollowed of AuthorId
+        // URL preview
+        | UrlPreviewRequested of url: string
+        | UrlPreviewReceivedFull of url: string * preview: UrlPreview
 
     type ExternalMsg =
         | NoOp
         | RequestProfile of AuthorId
         | RequestEvents of EventId list
         | SubscribeAuthor of AuthorId
+        | RequestUrlPreview of string
 
     let init () = {
         Events = []
         EventCache = Map.empty
         ProfileCache = Map.empty
-        PendingEventRequests = Set.empty
+        UrlPreviewCache = Map.empty
+        FollowedAuthors = Set.empty
         CurrentDialog = NoDialog
     }
 
@@ -164,39 +477,30 @@ module Feed =
             let needsProfile =
                 model.ProfileCache |> Map.containsKey authorBytes |> not
 
-            let needsReplyEvent =
-                match event.ReplyTo with
-                | Some replyToId ->
-                    let replyBytes = EventId.toBytes replyToId
-                    not (model.EventCache |> Map.containsKey replyBytes) &&
-                    not (model.PendingEventRequests |> Set.contains replyBytes)
-                | None -> false
-
             let externalMsg =
-                match needsProfile, needsReplyEvent, event.ReplyTo with
-                | true, true, Some replyToId ->
-                    RequestProfile event.Author // Prioritize profile, events will come
-                | true, _, _ ->
-                    RequestProfile event.Author
-                | false, true, Some replyToId ->
-                    RequestEvents [replyToId]
-                | _ ->
-                    NoOp
-
-            let updatedPending =
-                match event.ReplyTo with
-                | Some replyToId when needsReplyEvent ->
-                    model.PendingEventRequests |> Set.add (EventId.toBytes replyToId)
-                | _ ->
-                    model.PendingEventRequests
+                if needsProfile then RequestProfile event.Author
+                else NoOp
 
             { model with
                 Events = updatedEvents
-                EventCache = updatedEventCache
-                PendingEventRequests = updatedPending }, externalMsg
+                EventCache = updatedEventCache }, externalMsg
 
         | ProfileUpdated (authorBytes, profile) ->
-            let updatedCache = model.ProfileCache |> Map.add authorBytes profile
+            let authorHex = NostrService.formatAuthorId profile.AuthorId
+            // Preserve existing PictureData if the incoming profile doesn't have any
+            let existingPictureData =
+                model.ProfileCache
+                |> Map.tryFind authorBytes
+                |> Option.bind (fun p -> p.PictureData)
+            let profileWithData =
+                match profile.PictureData, existingPictureData with
+                | None, Some existingBytes -> { profile with PictureData = Some existingBytes }
+                | _ -> profile
+            printfn "[TRACE-FEED] ProfileUpdated %s: PictureData=%s, Picture=%s"
+                (authorHex.[..15])
+                (if profileWithData.PictureData.IsSome then $"{profileWithData.PictureData.Value.Length} bytes" else "None")
+                (if profileWithData.Picture.IsSome then "yes" else "no")
+            let updatedCache = model.ProfileCache |> Map.add authorBytes profileWithData
             let updatedEvents =
                 model.Events
                 |> List.map (fun e ->
@@ -225,7 +529,8 @@ module Feed =
         | ViewAuthor event ->
             let authorBytes = NostrService.authorIdToBytes event.Author
             let profile = model.ProfileCache |> Map.tryFind authorBytes
-            { model with CurrentDialog = ShowingAuthorInfo (event.Author, profile) }, NoOp
+            let isFollowed = model.FollowedAuthors |> Set.contains authorBytes
+            { model with CurrentDialog = ShowingAuthorInfo (event.Author, profile, isFollowed) }, NoOp
 
         | ViewEventInfo event ->
             { model with CurrentDialog = ShowingEventInfo event }, NoOp
@@ -238,17 +543,36 @@ module Feed =
 
         | AuthorFollowed author ->
             let authorBytes = NostrService.authorIdToBytes author
-            // Update ProfileCache to set IsFollowed = true
-            let updatedProfileCache =
-                model.ProfileCache
-                |> Map.change authorBytes (Option.map (fun p -> { p with IsFollowed = true }))
+            // Add to FollowedAuthors set
+            let updatedFollowed = model.FollowedAuthors |> Set.add authorBytes
             // Also update the dialog if it's showing this author
             let updatedDialog =
                 match model.CurrentDialog with
-                | ShowingAuthorInfo (dialogAuthor, Some profile) when NostrService.authorIdToBytes dialogAuthor = authorBytes ->
-                    ShowingAuthorInfo (dialogAuthor, Some { profile with IsFollowed = true })
+                | ShowingAuthorInfo (dialogAuthor, profile, _) when NostrService.authorIdToBytes dialogAuthor = authorBytes ->
+                    ShowingAuthorInfo (dialogAuthor, profile, true)
                 | other -> other
-            { model with ProfileCache = updatedProfileCache; CurrentDialog = updatedDialog }, NoOp
+            { model with FollowedAuthors = updatedFollowed; CurrentDialog = updatedDialog }, NoOp
+
+        | AuthorUnfollowed author ->
+            let authorBytes = NostrService.authorIdToBytes author
+            // Remove from FollowedAuthors set
+            let updatedFollowed = model.FollowedAuthors |> Set.remove authorBytes
+            // Also update the dialog if it's showing this author
+            let updatedDialog =
+                match model.CurrentDialog with
+                | ShowingAuthorInfo (dialogAuthor, profile, _) when NostrService.authorIdToBytes dialogAuthor = authorBytes ->
+                    ShowingAuthorInfo (dialogAuthor, profile, false)
+                | other -> other
+            { model with FollowedAuthors = updatedFollowed; CurrentDialog = updatedDialog }, NoOp
+
+        | UrlPreviewRequested url ->
+            // Mark as pending to prevent duplicate requests
+            let updatedCache = model.UrlPreviewCache |> Map.add url PreviewPending
+            { model with UrlPreviewCache = updatedCache }, RequestUrlPreview url
+
+        | UrlPreviewReceivedFull (url, preview) ->
+            let updatedCache = model.UrlPreviewCache |> Map.add url preview
+            { model with UrlPreviewCache = updatedCache }, NoOp
 
     // Context menu for each event
     let private eventContextMenu (event: FeedEvent) dispatch =
@@ -466,7 +790,7 @@ module Feed =
         ]
 
     // Dialog for showing author info
-    let private authorInfoDialog (author: AuthorId) (profile: UserProfile option) dispatch =
+    let private authorInfoDialog (author: AuthorId) (profile: UserProfile option) (isFollowed: bool) dispatch =
         let npub = NostrService.formatAuthorId author
 
         Border.create [
@@ -495,6 +819,42 @@ module Feed =
                             ]
                         ]
 
+                        // Profile Picture
+                        let hasPicture = profile |> Option.map (fun p -> p.PictureData.IsSome || p.Picture.IsSome) |> Option.defaultValue false
+                        if hasPicture then
+                            Border.create [
+                                Border.width 80.0
+                                Border.height 80.0
+                                Border.cornerRadius (CornerRadius 40.0)
+                                Border.clipToBounds true
+                                Border.horizontalAlignment HorizontalAlignment.Center
+                                Border.child (profileImage profile 80.0 80.0 Stretch.UniformToFill)
+                            ]
+                        else
+                            let authorBytes = NostrService.authorIdToBytes author
+                            Border.create [
+                                Border.width 80.0
+                                Border.height 80.0
+                                Border.cornerRadius (CornerRadius 40.0)
+                                Border.background (Colors.avatarFromBytes authorBytes)
+                                Border.horizontalAlignment HorizontalAlignment.Center
+                                Border.child (
+                                    TextBlock.create [
+                                        TextBlock.horizontalAlignment HorizontalAlignment.Center
+                                        TextBlock.verticalAlignment VerticalAlignment.Center
+                                        TextBlock.foreground Colors.buttonText
+                                        TextBlock.fontWeight FontWeight.Bold
+                                        TextBlock.fontSize 32.0
+                                        TextBlock.text (
+                                            profile
+                                            |> Option.bind (fun p -> p.DisplayName |> Option.orElse p.Name)
+                                            |> Option.map (fun n -> if n.Length > 0 then n.[0..0].ToUpper() else "?")
+                                            |> Option.defaultValue "?"
+                                        )
+                                    ]
+                                )
+                            ]
+
                         // Display Name
                         match profile |> Option.bind (fun p -> p.DisplayName |> Option.orElse p.Name) with
                         | Some name ->
@@ -515,7 +875,7 @@ module Feed =
                         | None -> ()
 
                         // NIP-05
-                        match profile |> Option.bind (fun p -> p.Nip05) with
+                        match profile |> Option.bind _.Nip05 with
                         | Some nip05 ->
                             StackPanel.create [
                                 StackPanel.orientation Orientation.Vertical
@@ -574,18 +934,10 @@ module Feed =
 
                         // Subscribe button
                         Button.create (Attrs.primaryButton @ [
-                            Button.content (
-                                match profile with
-                                | Some p when p.IsFollowed -> "Already Following"
-                                | _ -> "Subscribe"
-                            )
+                            Button.content (if isFollowed then "Already Following" else "Subscribe")
                             Button.horizontalAlignment HorizontalAlignment.Stretch
                             Button.padding (Thickness(12.0, 8.0))
-                            Button.isEnabled (
-                                match profile with
-                                | Some p -> not p.IsFollowed
-                                | None -> true
-                            )
+                            Button.isEnabled (not isFollowed)
                             Button.onClick (fun _ -> dispatch (SubscribeToAuthor author))
                         ])
                     ]
@@ -623,7 +975,7 @@ module Feed =
 
         rootEvents |> List.collect (flatten 0)
 
-    let private feedEventView (model: Model) (depth: int) (event: FeedEvent) dispatch =
+    let private feedEventView (store: DomainStore) (model: Model) (depth: int) (event: FeedEvent) dispatch =
         let isReply = depth > 0
         let leftMargin = float depth * Dimensions.replyIndent
 
@@ -635,6 +987,20 @@ module Feed =
 
         let authorBytes = NostrService.authorIdToBytes event.Author
 
+        // Get profile from DomainStore, falling back to legacy cache
+        let authorProfile =
+            DomainStore.getCachedProfile event.Author store
+            |> Option.map (fun cached ->
+                // Convert CachedProfile to UserProfile for legacy view code
+                { UserProfile.AuthorId = cached.Profile.AuthorId
+                  Name = cached.Profile.Name
+                  DisplayName = cached.Profile.DisplayName
+                  About = cached.Profile.About
+                  Picture = cached.Profile.Picture
+                  PictureData = cached.PictureData
+                  Nip05 = cached.Profile.Nip05 })
+            |> Option.orElse (model.ProfileCache |> Map.tryFind authorBytes)
+
         Border.create (Attrs.feedEvent isReply @ [
             Border.margin (Spacing.leftOnly leftMargin)
             Border.contextMenu (eventContextMenu event dispatch)
@@ -643,16 +1009,26 @@ module Feed =
                     DockPanel.children [
                         Border.create (Attrs.avatar @ [
                             Border.dock Dock.Left
-                            Border.background (Colors.avatarFromBytes authorBytes)
+                            Border.background (
+                                let hasPicture = authorProfile |> Option.map (fun p -> p.PictureData.IsSome || p.Picture.IsSome) |> Option.defaultValue false
+                                if hasPicture then Brushes.Transparent :> IBrush
+                                else Colors.avatarFromBytes authorBytes
+                            )
                             Border.margin (Thickness(0.0, 0.0, 10.0, 0.0))
+                            Border.clipToBounds true
                             Border.child (
-                                TextBlock.create (Attrs.avatarText @ [
-                                    TextBlock.text (
-                                        event.AuthorName
-                                        |> Option.map (fun n -> if n.Length > 0 then n.[0..0].ToUpper() else "?")
-                                        |> Option.defaultValue "?"
-                                    )
-                                ])
+                                let hasPicture = authorProfile |> Option.map (fun p -> p.PictureData.IsSome || p.Picture.IsSome) |> Option.defaultValue false
+                                if hasPicture then
+                                    profileImage authorProfile Dimensions.avatarSize Dimensions.avatarSize Stretch.UniformToFill
+                                    :> Types.IView
+                                else
+                                    TextBlock.create (Attrs.avatarText @ [
+                                        TextBlock.text (
+                                            event.AuthorName
+                                            |> Option.map (fun n -> if n.Length > 0 then n.[0..0].ToUpper() else "?")
+                                            |> Option.defaultValue "?"
+                                        )
+                                    ])
                             )
                         ])
                         StackPanel.create [
@@ -702,7 +1078,8 @@ module Feed =
                                         ])
                                     ]
                                 ]
-                                renderContent event.Content
+                                let requestUrlPreview url = dispatch (UrlPreviewRequested url)
+                                renderContent model.ProfileCache model.EventCache model.UrlPreviewCache requestUrlPreview event.Content
                             ]
                         ]
                     ]
@@ -710,7 +1087,7 @@ module Feed =
             )
         ])
 
-    let view (model: Model) dispatch =
+    let view (store: DomainStore) (model: Model) dispatch =
         let threadedEvents = buildThreadedFeed model.Events
 
         let feedContent =
@@ -721,7 +1098,7 @@ module Feed =
                         StackPanel.orientation Orientation.Vertical
                         StackPanel.children [
                             for (depth, event) in threadedEvents do
-                                feedEventView model depth event dispatch
+                                feedEventView store model depth event dispatch
                         ]
                     ]
                 )
@@ -749,7 +1126,7 @@ module Feed =
                             ]
                         )
                     ]
-                | ShowingAuthorInfo (author, profile) ->
+                | ShowingAuthorInfo (author, profile, isFollowed) ->
                     Border.create [
                         Border.background (SolidColorBrush(Color.FromArgb(150uy, 0uy, 0uy, 0uy)))
                         Border.child (
@@ -757,7 +1134,7 @@ module Feed =
                                 Grid.horizontalAlignment HorizontalAlignment.Center
                                 Grid.verticalAlignment VerticalAlignment.Center
                                 Grid.children [
-                                    authorInfoDialog author profile dispatch
+                                    authorInfoDialog author profile isFollowed dispatch
                                 ]
                             ]
                         )
