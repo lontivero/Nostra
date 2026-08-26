@@ -37,6 +37,18 @@
             code-coverage-report
             zlib # Aot
             jetbrains.rider
+            claude-code
+            # Avalonia GUI dependencies
+            fontconfig
+            freetype
+            libGL
+            xorg.libX11
+            xorg.libXcursor
+            xorg.libXi
+            xorg.libXrandr
+            xorg.libXext
+            xorg.libXrender
+            xorg.libXinerama
           ];
 
           DOTNET_ROOT = "${dotnet-sdk_10}";

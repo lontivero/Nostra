@@ -121,6 +121,7 @@ type ShareableEntity =
      | NRelay of RelayT
 
 [<RequireQualifiedAccess>]
+[<CompilationRepresentation(CompilationRepresentationFlags.ModuleSuffix)>]
 module Shareable =
     open System.Text
     open Microsoft.FSharp.Collections

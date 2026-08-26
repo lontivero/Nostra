@@ -4,4 +4,8 @@
      <GenerateDocumentationFile>false</GenerateDocumentationFile>
      <Deterministic>true</Deterministic>
  </PropertyGroup>
+ <ItemGroup>
+     <!-- Override vulnerable transitive dependency from Fumble -->
+     <PackageReference Include="SQLitePCLRaw.bundle_e_sqlite3" />
+ </ItemGroup>
 </Project>
