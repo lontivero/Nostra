@@ -52,7 +52,6 @@ type Event =
       Content: string
       Signature: SchnorrSignature }
 
-[<CompiledName("Event")>]
 [<RequireQualifiedAccess>]
 module Event =
     open Utils
