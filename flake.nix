@@ -55,6 +55,19 @@
           DOTNET_CLI_TELEMETRY_OPTOUT = "1";
           DOTNET_NOLOGO = "1";
 
+          LD_LIBRARY_PATH = lib.makeLibraryPath [
+            fontconfig
+            freetype
+            libGL
+            xorg.libX11
+            xorg.libXcursor
+            xorg.libXi
+            xorg.libXrandr
+            xorg.libXext
+            xorg.libXrender
+            xorg.libXinerama
+          ];
+
           shellHook = ''
             export GIT_TOP_LEVEL="$(${pkgs.git}/bin/git rev-parse --show-toplevel)"
             ln -f -s ${git-hooks}/bin/pre-commit $GIT_TOP_LEVEL/.git/hooks/pre-commit
