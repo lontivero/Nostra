@@ -4,6 +4,7 @@ open System.Collections.Generic
 open System.Threading
 open Nostra
 open Nostra.Client.Response
+open Nostra.Relay.Configuration
 open Nostra.Relay.InfoDocument
 open Nostra.Tests
 open FsUnit.Xunit
@@ -55,6 +56,13 @@ let ``start relay`` () = async {
 let ``start relay with limits`` (limits : Limitation) = async {
     use cts = new CancellationTokenSource()
     let port = Relay.startRelayWithLimitations cts.Token limits
+    let testContext = { CurrentUser = ""; Users = Dictionary<string, User>(); Port = port }
+    return testContext
+}
+
+let ``start relay with write policy`` (writePolicy : WritePolicy) = async {
+    use cts = new CancellationTokenSource()
+    let port = Relay.startRelayWithWritePolicy cts.Token writePolicy
     let testContext = { CurrentUser = ""; Users = Dictionary<string, User>(); Port = port }
     return testContext
 }
@@ -153,7 +161,7 @@ let ``send raw`` messageFactory : TestStep =
             | Ok (RMACK(_, true, _)) -> should equal true true
             | Ok (RMACK(_, false, reason)) -> user.Errors.Add reason
             | Ok (RMNotice(notice)) -> user.Errors.Add notice
-            | Error e -> user.Errors.Add (e.ToString())
+            | Result.Error e -> user.Errors.Add (e.ToString())
             | _ -> failwith "error"
         | None ->
             failwith $"User '{ctx.CurrentUser}' is not connected."
@@ -207,6 +215,12 @@ let deleteNote evnts : EventFactory =
             |> List.map (_.Id)
 
         Event.createDeleteEvent ids "nothing"
+
+let reaction content : EventFactory =
+    fun ctx -> Event.create Kind.Reaction [] content
+
+let repost content : EventFactory =
+    fun ctx -> Event.create Kind.Repost [] content
 
 [<Literal>]
 let Alice = "Alice"

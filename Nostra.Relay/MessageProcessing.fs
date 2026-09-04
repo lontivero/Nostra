@@ -9,6 +9,7 @@ open Nostra
 open Nostra.ClientContext
 open Nostra.Relay
 open Nostra.Relay.InfoDocument
+open Nostra.Relay.Plugin
 open Relay.Request
 open Relay.Response
 open Relay.Configuration
@@ -20,6 +21,7 @@ type Context = {
     clientRegistry : ClientRegistry
     logger: IOLogger
     config: RelayConfig
+    pluginManager: PluginManager
 }
 
 type EventProcessingError =
@@ -45,11 +47,22 @@ let ackError eventId error =
 let noticeError error =
     BusinessError (RMNotice error)
 
-let canPersistEvent (event : Event) (limits : Limitation) = result {
+let checkWritePolicy (event: Event) (pluginManager: PluginManager) (timeoutSeconds: int) (sourceInfo: string) (logger: IOLogger) =
+    let action = pluginManager.acceptEvent timeoutSeconds event EventSourceType.IP4 sourceInfo
+    match action with
+    | Ok Accept -> true
+    | Ok (Reject msg) ->
+        logger.logInfo $"{event.Id} blocked: {msg}"
+        false
+    | Result.Error msg ->
+        logger.logError $"{event.Id} {msg}"
+        false
+
+let canPersistEvent (event : Event) (limits : Limitation) (pluginManager: PluginManager) (timeoutSeconds: int) (sourceInfo: string) (logger : IOLogger) = result {
     do! Result.requireTrue (ackError event.Id "invalid: too many tags") (event.Tags.Length <= limits.MaxEventTags)
     do! Result.requireTrue (ackError event.Id "invalid: content too large") (event.Content.Length <= limits.MaxContentLength)
-    do! Result.requireTrue (ackError event.Id "invalid: content too large") (event.Content.Length <= limits.MaxContentLength)
     do! Result.requireTrue (ackError event.Id "invalid: the signature is incorrect") (Event.verify event)
+    do! Result.requireTrue (ackError event.Id "event cannot be accepted") (checkWritePolicy event pluginManager timeoutSeconds sourceInfo logger)
     }
 
 let verifyCanSubscribe (subscriptionId : SubscriptionId) filters (subscriptionStore : SubscriptionStore) (limits : Limitation) = result {
@@ -66,13 +79,16 @@ let processRequest (env : Context) (subscriptionStore : SubscriptionStore) reque
 
     let! request =
         deserialize requestText
-        |> Result.mapError (fun _ -> noticeError "invalid: it was not possible to deserialize")
+        |> Result.mapError (fun err ->
+            env.logger.logError $"invalid: it was not possible to deserialize: {err}. Raw request: {requestText}"
+            noticeError "invalid: it was not possible to deserialize")
 
     do! Result.requireTrue (noticeError "message too large") (requestText.Length <= limits.MaxMessageLength)
 
     match request with
     | CMEvent event ->
-        do! (canPersistEvent event limits)
+        let timeoutSeconds = env.config.WritePolicy.TimeoutSeconds
+        do! canPersistEvent event limits env.pluginManager timeoutSeconds "websocket" env.logger
         let serializedEvent = requestText[(requestText.IndexOf "{")..(requestText.LastIndexOf "}")]
 
         let preprocessedEvent = preprocessEvent event serializedEvent
@@ -85,7 +101,7 @@ let processRequest (env : Context) (subscriptionStore : SubscriptionStore) reque
         subscriptionStore[subscriptionId] <- filters
         let! matchingEvents =
             filterEvents env.eventStore.fetchEvents filters DateTime.Now
-            |> AsyncResult.mapError (fun ec -> noticeError "Something was wrong.")
+            |> AsyncResult.mapError (fun _ -> noticeError "Something was wrong.")
 
         let relayMessages =
             matchingEvents

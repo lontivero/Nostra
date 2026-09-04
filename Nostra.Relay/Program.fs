@@ -23,7 +23,7 @@ open Suave.WebSocket
 [<TailCall>]
 let rec processRelayMessagesLoop (webSocket: WebSocket) (inbox: MailboxProcessor<RelayMessage>) = async {
     let! msg = inbox.Receive()
-    let! result = webSocket.send Text (toPayload msg) true
+    let! _ = webSocket.send Text (toPayload msg) true
     return! processRelayMessagesLoop webSocket inbox
 }
 
@@ -33,6 +33,7 @@ let rec processRequestLoop
         (webSocket: WebSocket)
         (env: Context)
         (send: RelayMessage -> unit)
+        (cleanup: unit -> unit)
         (processRequest: string -> Async<Result<RelayMessage list,EventProcessingError>>) = socket {
     let! msg = webSocket.read()
     match msg with
@@ -41,7 +42,7 @@ let rec processRequestLoop
         processRequest requestText
         |> AsyncResult.map (function
         | [ ] -> ()
-        | (final::messages) ->
+        | final::messages ->
             messages
             |> List.rev
             |> List.iter send
@@ -55,22 +56,26 @@ let rec processRequestLoop
                 env.logger.logError (e.ToString())
                 send (RMNotice "unexpected error"))
 
-        return! processRequestLoop clientId webSocket env send processRequest
+        return! processRequestLoop clientId webSocket env send cleanup processRequest
     | Close, _, _ ->
         env.clientRegistry.unsubscribe clientId
+        cleanup ()
         let emptyResponse = [||] |> ByteSegment
         do! webSocket.send Close emptyResponse true
     | _ ->
-        return! processRequestLoop clientId webSocket env send processRequest
+        return! processRequestLoop clientId webSocket env send cleanup processRequest
 }
 let webSocketHandler () =
     let handle (env : Context) (webSocket : WebSocket) (context: HttpContext) =
         let subscriptions = Dictionary<SubscriptionId, Filter list>()
 
-        let send =
-            let worker =
-                MailboxProcessor<RelayMessage>.Start(processRelayMessagesLoop webSocket)
-            worker.Post
+        let worker =
+            MailboxProcessor<RelayMessage>.Start(processRelayMessagesLoop webSocket)
+
+        let send = worker.Post
+
+        let cleanup () =
+            (worker :> System.IDisposable).Dispose()
 
         let notifyEvent : EventEvaluator =
             fun event ->
@@ -88,7 +93,7 @@ let webSocketHandler () =
         let processRequest req = processRequest env subscriptions req
 
         env.clientRegistry.subscribe clientId notifyEvent
-        processRequestLoop clientId webSocket env send processRequest
+        processRequestLoop clientId webSocket env send cleanup processRequest
     Monad.Reader (fun (ctx : Context) -> handle ctx)
 
 open Suave.Operators
@@ -98,6 +103,7 @@ open Suave.Successful
 open Thoth.Json.Net
 open Relay.Configuration
 open Relay.InfoDocument
+open Nostra.Relay.Plugin
 
 let relayInformationDocument (relayInfo: RelayInfo) =
     OK <| InfoDocument.getRelayInfoDocument relayInfo
@@ -115,6 +121,11 @@ let buildContext (config: RelayConfig) (logger: TextWriter) =
     let ifEnabled minLevel action =
         if config.LogLevel >= minLevel then action else ignore
 
+    let pluginManager =
+        match config.WritePolicy.Plugin with
+        | Some cmd -> createPluginManager cmd
+        | None -> createAcceptAllPluginManager ()
+
     {
         eventStore = {
             saveEvent = Database.saveEvent dbconnection
@@ -128,6 +139,7 @@ let buildContext (config: RelayConfig) (logger: TextWriter) =
             logError = ifEnabled LogLevel.Error logger.WriteLine
         }
         config = config
+        pluginManager = pluginManager
     }
 
 open System

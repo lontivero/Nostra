@@ -318,10 +318,30 @@ module Relay =
             let decode : Decoder<LogLevel> =
                 Decode.string |> Decode.map (fun s -> fromString (s.ToLowerInvariant()))
 
+        type WritePolicy = {
+            Plugin: string option
+            TimeoutSeconds: int
+        }
+
+        module WritePolicy =
+            let defaults = {
+                Plugin = None
+                TimeoutSeconds = 10
+            }
+
+            let decode : Decoder<WritePolicy> =
+                Decode.object (fun get ->
+                    let defaults = defaults
+                    {
+                        Plugin = get.Optional.Field "plugin" Decode.string
+                        TimeoutSeconds = get.Optional.Field "timeout_seconds" Decode.int |> Option.defaultValue defaults.TimeoutSeconds
+                    })
+
         type RelayConfig = {
             LogLevel: LogLevel
             DatabasePath: string
             RelayInfo: RelayInfo
+            WritePolicy: WritePolicy
         }
 
         module RelayConfig =
@@ -329,6 +349,7 @@ module Relay =
                 LogLevel = Info
                 DatabasePath = "relay.db"
                 RelayInfo = RelayInfo.defaults
+                WritePolicy = WritePolicy.defaults
             }
 
             let decode : Decoder<RelayConfig> =
@@ -338,6 +359,7 @@ module Relay =
                         LogLevel = get.Optional.Field "log_level" LogLevel.decode |> Option.defaultValue defaults.LogLevel
                         DatabasePath = get.Optional.Field "database_path" Decode.string |> Option.defaultValue defaults.DatabasePath
                         RelayInfo = get.Optional.Field "relay_info" RelayInfo.decode |> Option.defaultValue defaults.RelayInfo
+                        WritePolicy = get.Optional.Field "write_policy" WritePolicy.decode |> Option.defaultValue defaults.WritePolicy
                     })
 
             let load (filePath: string) =
