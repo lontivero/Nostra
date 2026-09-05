@@ -1,5 +1,6 @@
 module RelayIntegrationTests
 
+open System.IO
 open Nostra
 open Nostra.Relay.Configuration
 open Nostra.Relay.InfoDocument
@@ -188,3 +189,70 @@ type ``Relay Nip40``(output:ITestOutputHelper) =
         |>  verify (fun test ->
             let user = currentUser test
             should equal 0 user.ReceivedEvents.Count)
+
+type ``Relay Plugin``(output:ITestOutputHelper) =
+
+    let createPluginScript (blockedKind: int) =
+        let scriptPath = Path.GetTempFileName()
+        let scriptContent = $"""
+read line
+id=$(echo "$line" | sed -n 's/.*"id":"\([^"]*\)".*/\1/p')
+kind=$(echo "$line" | sed -n 's/.*"kind":\([0-9]*\).*/\1/p')
+if [ "$kind" = "{blockedKind}" ]; then
+    echo '{{"id":"'"$id"'","action":"reject","msg":"kind {blockedKind} is not allowed"}}'
+else
+    echo '{{"id":"'"$id"'","action":"accept"}}'
+fi
+"""
+        File.WriteAllText(scriptPath, scriptContent)
+        scriptPath
+
+    [<Fact>]
+    let ``Plugin can block events by kind`` () =
+        let scriptPath = createPluginScript 7 // Block Kind.Reaction
+        let writePolicy = { Plugin = Some $"bash {scriptPath}"; TimeoutSeconds = 5 }
+
+        ``start relay with write policy`` writePolicy
+        $ given Alice
+        $ ``connect to relay``
+        $ ``send event`` (note "hello")           // Kind.Text = 1, should be accepted
+        $ ``send event`` (reaction "+1")          // Kind.Reaction = 7, should be blocked
+        $ given Bob
+        $ ``connect to relay``
+        $ ``subscribe to all events``
+        |> verify (fun test ->
+            let alice = test.Users[Alice]
+            let bob = test.Users[Bob]
+
+            // Alice should have one error (blocked reaction)
+            should equal 1 alice.Errors.Count
+            should haveSubstring "event cannot be accepted" alice.Errors[0]
+
+            // Bob should only receive the note, not the reaction
+            should equal 1 bob.ReceivedEvents.Count
+            should equal Kind.Text bob.ReceivedEvents[0].Kind
+            should equal "hello" bob.ReceivedEvents[0].Content)
+
+    [<Fact>]
+    let ``Plugin allows events when kind is not blocked`` () =
+        let scriptPath = createPluginScript 999 // Block a kind we won't use
+        let writePolicy = { Plugin = Some $"bash {scriptPath}"; TimeoutSeconds = 5 }
+
+        ``start relay with write policy`` writePolicy
+        $ given Alice
+        $ ``connect to relay``
+        $ ``send event`` (note "first note")
+        $ ``send event`` (note "second note")
+        $ ``send event`` (reaction "like")
+        $ given Bob
+        $ ``connect to relay``
+        $ ``subscribe to all events``
+        |> verify (fun test ->
+            let alice = test.Users[Alice]
+            let bob = test.Users[Bob]
+
+            // No errors - all events should be accepted
+            should equal 0 alice.Errors.Count
+
+            // Bob should receive all 3 events
+            should equal 3 bob.ReceivedEvents.Count)

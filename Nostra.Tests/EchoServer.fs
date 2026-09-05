@@ -87,3 +87,8 @@ module Relay =
         let relayInfo = { RelayInfo.defaults with Limitation = limitations }
         let config = { RelayConfig.defaults with DatabasePath = uniqueDb; RelayInfo = relayInfo }
         startRelayWithConfig ct config
+
+    let startRelayWithWritePolicy ct (writePolicy: WritePolicy) =
+        let uniqueDb = $"file:test{Guid.NewGuid():N}?mode=memory&cache=shared"
+        let config = { RelayConfig.defaults with DatabasePath = uniqueDb; WritePolicy = writePolicy }
+        startRelayWithConfig ct config
