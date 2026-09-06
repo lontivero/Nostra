@@ -21,10 +21,16 @@ open Suave.Sockets.Control
 open Suave.WebSocket
 
 [<TailCall>]
-let rec processRelayMessagesLoop (webSocket: WebSocket) (inbox: MailboxProcessor<RelayMessage>) = async {
+let rec processRelayMessagesLoop
+        (webSocket: WebSocket)
+        (cleanup: unit -> unit)
+        (inbox: MailboxProcessor<RelayMessage>) = async {
     let! msg = inbox.Receive()
-    let! _ = webSocket.send Text (toPayload msg) true
-    return! processRelayMessagesLoop webSocket inbox
+    try
+        let! _ = webSocket.send Text (toPayload msg) true
+        return! processRelayMessagesLoop webSocket cleanup inbox
+    with _ ->
+        cleanup ()
 }
 
 [<TailCall>]
@@ -58,7 +64,6 @@ let rec processRequestLoop
 
         return! processRequestLoop clientId webSocket env send cleanup processRequest
     | Close, _, _ ->
-        env.clientRegistry.unsubscribe clientId
         cleanup ()
         let emptyResponse = [||] |> ByteSegment
         do! webSocket.send Close emptyResponse true
@@ -69,13 +74,18 @@ let webSocketHandler () =
     let handle (env : Context) (webSocket : WebSocket) (context: HttpContext) =
         let subscriptions = Dictionary<SubscriptionId, Filter list>()
 
-        let worker =
-            MailboxProcessor<RelayMessage>.Start(processRelayMessagesLoop webSocket)
-
-        let send = worker.Post
+        let clientId =
+            let ip = context.clientIp true []
+            let port = context.clientPort true []
+            ClientId(ip , port)
 
         let cleanup () =
-            (worker :> System.IDisposable).Dispose()
+            env.clientRegistry.unsubscribe clientId
+
+        let worker =
+            MailboxProcessor<RelayMessage>.Start(processRelayMessagesLoop webSocket cleanup)
+
+        let send msg = worker.Post msg
 
         let notifyEvent : EventEvaluator =
             fun event ->
@@ -84,11 +94,6 @@ let webSocketHandler () =
                 |> Seq.tryFind(fun (_, m) -> m = true)
                 |> Option.iter (fun (subscriptionId, _) ->
                     send (RMEvent (subscriptionId, event.Serialized)))
-
-        let clientId =
-            let ip = context.clientIp true []
-            let port = context.clientPort true []
-            ClientId(ip , port)
 
         let processRequest req = processRequest env subscriptions req
 
@@ -119,7 +124,7 @@ let buildContext (config: RelayConfig) (logger: TextWriter) =
 
     let limits = config.RelayInfo.Limitation
     let ifEnabled minLevel action =
-        if config.LogLevel >= minLevel then action else ignore
+        if minLevel >= config.LogLevel then action else ignore
 
     let pluginManager =
         match config.WritePolicy.Plugin with
