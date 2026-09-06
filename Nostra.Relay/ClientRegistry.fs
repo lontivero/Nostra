@@ -37,7 +37,9 @@ let createClientRegistry () =
     let notifyToAll event =
         evaluators
         |> Seq.map (_.Value)
-        |> Seq.iter (fun evaluator -> evaluator event)
+        |> Seq.iter (fun evaluator ->
+            try evaluator event
+            with _ -> ())
 
     let worker =
         MailboxProcessor<ClientRegistryAction>.Start(processClientRegistrationRequestLoop evaluators notifyToAll)
