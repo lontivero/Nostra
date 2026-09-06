@@ -12,12 +12,13 @@
 , curl
 , dotnet-sdk
 , dotnet-runtime
+, gitRev ? "unknown"
 }:
 buildDotnetModule rec {
     inherit dotnet-sdk dotnet-runtime;
 
     pname = "nostra";
-    version = "0.0.1";
+    version = "0.0.1-${gitRev}";
     nugetDeps = ./deps.json; # nix build .#packages.x86_64-linux.default.passthru.fetch-deps
 
     src = ./..;
