@@ -1,10 +1,17 @@
 namespace Nostra
 
 open System
+open System.Reflection
 open System.Text
 open Thoth.Json.Net
 
 module Relay =
+
+    let getAssemblyVersion () =
+        let assembly = Assembly.GetExecutingAssembly()
+        let attr = assembly.GetCustomAttribute<AssemblyInformationalVersionAttribute>()
+        if isNull attr then "0.0.1"
+        else attr.InformationalVersion
 
     type StoredEvent = {
         Id: string
@@ -261,7 +268,7 @@ module Relay =
                 Contact = ""
                 SupportedNips = [1; 2; 4; 9; 11; 12; 16; 20; 33; 40]
                 Software = "https://github.com/lontivero/Nostra/"
-                Version = "0.0.1"
+                Version = getAssemblyVersion ()
                 Limitation = Limitation.defaults
             }
 

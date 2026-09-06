@@ -22,6 +22,7 @@
         nostra = pkgs.callPackage ./Contrib/default.nix {
           dotnet-sdk = pkgs.dotnet-sdk_10;
           dotnet-runtime = pkgs.dotnet-runtime_10;
+          gitRev = self.shortRev or "dirty";
         };
       };
 
