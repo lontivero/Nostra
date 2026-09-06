@@ -11,8 +11,7 @@ open Suave.Sockets.Control.SocketMonad
 
 module EchoServer =
     let startEchoServer ct =
-        let port = 8000 + Random.Shared.Next(2000)
-        let local = Suave.Http.HttpBinding.createSimple HTTP "127.0.0.1" port
+        let local = Suave.Http.HttpBinding.createSimple HTTP "127.0.0.1" 0
 
         let conf = { defaultConfig with cancellationToken = ct; bindings = [local] }
         let listening, server = startWebServerAsync conf (
@@ -34,8 +33,8 @@ module EchoServer =
                 )
         )
         Async.Start(server, ct)
-        listening |> Async.RunSynchronously |> ignore
-        port
+        let startedData = listening |> Async.RunSynchronously
+        int startedData[0].Value.binding.port
 
 module Client =
     open System.Net.WebSockets
@@ -68,14 +67,13 @@ module Relay =
         let env = buildContext config TextWriter.Null
         let wsHandler = Monad.injectedWith env (webSocketHandler ())
 
-        let port = 8000 + Random.Shared.Next(2000)
-        let local = Http.HttpBinding.createSimple HTTP "127.0.0.1" port
+        let local = Http.HttpBinding.createSimple HTTP "127.0.0.1" 0
         let conf = { defaultConfig with cancellationToken = ct; bindings = [local] }
         let listening, server = startWebServerAsync conf (path "/" >=> handShake wsHandler)
 
         Async.Start(server, ct)
-        listening |> Async.RunSynchronously |> ignore
-        port
+        let startedData = listening |> Async.RunSynchronously
+        int startedData[0].Value.binding.port
 
     let startRelay ct =
         let uniqueDb = $"file:test{Guid.NewGuid():N}?mode=memory&cache=shared"
