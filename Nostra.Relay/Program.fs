@@ -95,7 +95,7 @@ let webSocketHandler () =
                 |> Option.iter (fun (subscriptionId, _) ->
                     send (RMEvent (subscriptionId, event.Serialized)))
 
-        let processRequest req = processRequest env subscriptions req
+        let processRequest req = processRequest env clientId subscriptions req
 
         env.clientRegistry.subscribe clientId notifyEvent
         processRequestLoop clientId webSocket env send cleanup processRequest

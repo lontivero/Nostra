@@ -134,7 +134,7 @@ module Relay =
                             (fun subscriptionId filters -> CMCount (subscriptionId, filters))
                             (Decode.index 1 Decode.string)
                             listOfFilters
-                    | _ -> Decode.fail "Client request type is unknown")
+                    | c -> Decode.fail $"Client request type '{c}' is unknown")
 
         let deserialize str  =
             Decode.fromString Decode.clientMessage str

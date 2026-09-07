@@ -28,6 +28,8 @@ type EventProcessingError =
     | UnexpectedError of Exception
     | BusinessError of RelayMessage
 
+let formatClientId (ClientId(ip, port)) = $"{ip}:{port}"
+
 let preprocessEvent (event : Event) serializedEvent =
     let (EventId eventId) = event.Id
     let (AuthorId author) = event.PubKey
@@ -41,13 +43,15 @@ let preprocessEvent (event : Event) serializedEvent =
         Seen = DateTime.UtcNow
     }
 
-let ackError (logger: IOLogger) eventId error =
-    logger.logWarn $"Rejected event {eventId}: {error}"
-    BusinessError (RMAck (eventId, false, error))
+let formatEventId (EventId bytes) = Utils.toHex bytes
 
-let noticeError (logger: IOLogger) error =
-    logger.logWarn $"Request rejected: {error}"
-    BusinessError (RMNotice error)
+let ackError (logger: IOLogger) clientId eventId logDetails clientMessage =
+    logger.logWarn $"[{formatClientId clientId}] Rejected event {formatEventId eventId}: {logDetails}"
+    BusinessError (RMAck (eventId, false, clientMessage))
+
+let noticeError (logger: IOLogger) clientId logDetails clientMessage =
+    logger.logWarn $"[{formatClientId clientId}] {logDetails}"
+    BusinessError (RMNotice clientMessage)
 
 let checkWritePolicy (event: Event) (pluginManager: PluginManager) (timeoutSeconds: int) (sourceInfo: string) (logger: IOLogger) =
     let action = pluginManager.acceptEvent timeoutSeconds event EventSourceType.IP4 sourceInfo
@@ -61,33 +65,33 @@ let checkWritePolicy (event: Event) (pluginManager: PluginManager) (timeoutSecon
         false
 
 let canPersistEvent ackError (event : Event) (limits : Limitation) (pluginManager: PluginManager) (timeoutSeconds: int) (sourceInfo: string) (logger : IOLogger) = result {
-    do! Result.requireTrue (ackError event.Id "invalid: too many tags") (event.Tags.Length <= limits.MaxEventTags)
-    do! Result.requireTrue (ackError event.Id "invalid: content too large") (event.Content.Length <= limits.MaxContentLength)
-    do! Result.requireTrue (ackError event.Id "invalid: the signature is incorrect") (Event.verify event)
-    do! Result.requireTrue (ackError event.Id "event cannot be accepted") (checkWritePolicy event pluginManager timeoutSeconds sourceInfo logger)
+    do! Result.requireTrue (ackError event.Id $"too many tags ({event.Tags.Length} > {limits.MaxEventTags})" "invalid: too many tags") (event.Tags.Length <= limits.MaxEventTags)
+    do! Result.requireTrue (ackError event.Id $"content too large ({event.Content.Length} > {limits.MaxContentLength})" "invalid: content too large") (event.Content.Length <= limits.MaxContentLength)
+    do! Result.requireTrue (ackError event.Id "invalid signature" "invalid: the signature is incorrect") (Event.verify event)
+    do! Result.requireTrue (ackError event.Id "blocked by write policy" "event cannot be accepted") (checkWritePolicy event pluginManager timeoutSeconds sourceInfo logger)
     }
 
 let verifyCanSubscribe noticeError (subscriptionId : SubscriptionId) filters (subscriptionStore : SubscriptionStore) (limits : Limitation) = result {
-    do! Result.requireTrue (noticeError "too large subscription id") (subscriptionId.Length <= limits.MaxSubidLength)
+    do! Result.requireTrue (noticeError $"subscription id too large ({subscriptionId.Length} > {limits.MaxSubidLength})" "too large subscription id") (subscriptionId.Length <= limits.MaxSubidLength)
     let filterCount = Seq.length filters
-    do! Result.requireTrue (noticeError "too many filters") (filterCount <= limits.MaxFilters)
+    do! Result.requireTrue (noticeError $"too many filters ({filterCount} > {limits.MaxFilters})" "too many filters") (filterCount <= limits.MaxFilters)
     let isNewSubscription = not (subscriptionStore.ContainsKey subscriptionId)
     let subscriptionCount = Seq.length subscriptionStore
-    do! Result.requireTrue (noticeError "too many subscriptions") (subscriptionCount < limits.MaxSubscriptions || not isNewSubscription)
+    do! Result.requireTrue (noticeError $"too many subscriptions ({subscriptionCount} >= {limits.MaxSubscriptions})" "too many subscriptions") (subscriptionCount < limits.MaxSubscriptions || not isNewSubscription)
     }
 
-let processRequest (env : Context) (subscriptionStore : SubscriptionStore) requestText = asyncResult {
+let processRequest (env : Context) (clientId : ClientId) (subscriptionStore : SubscriptionStore) requestText = asyncResult {
     let limits = env.config.RelayInfo.Limitation
-    let ackError = ackError env.logger
-    let noticeError = noticeError env.logger
+    let ackError = ackError env.logger clientId
+    let noticeError = noticeError env.logger clientId
 
     let! request =
         deserialize requestText
         |> Result.mapError (fun err ->
-            env.logger.logError $"invalid: it was not possible to deserialize: {err}. Raw request: {requestText}"
-            noticeError "invalid: it was not possible to deserialize")
+            env.logger.logError $"[{formatClientId clientId}] Failed to deserialize: {err}. Raw request: {requestText}"
+            noticeError "deserialization failed" "invalid: it was not possible to deserialize")
 
-    do! Result.requireTrue (noticeError "message too large") (requestText.Length <= limits.MaxMessageLength)
+    do! Result.requireTrue (noticeError $"message too large ({requestText.Length} > {limits.MaxMessageLength})" "message too large") (requestText.Length <= limits.MaxMessageLength)
 
     match request with
     | CMEvent event ->
@@ -105,7 +109,7 @@ let processRequest (env : Context) (subscriptionStore : SubscriptionStore) reque
         subscriptionStore[subscriptionId] <- filters
         let! matchingEvents =
             filterEvents env.eventStore.fetchEvents filters DateTime.UtcNow
-            |> AsyncResult.mapError (fun _ -> noticeError "Something was wrong.")
+            |> AsyncResult.mapError (fun err -> noticeError $"query failed: {err}" "Something was wrong.")
 
         let relayMessages =
             matchingEvents
@@ -120,7 +124,7 @@ let processRequest (env : Context) (subscriptionStore : SubscriptionStore) reque
     | CMCount(subscriptionId, filters) ->
         let! count =
             env.eventStore.countEvents filters DateTime.UtcNow
-            |> AsyncResult.mapError (fun _ -> noticeError "Something was wrong.")
+            |> AsyncResult.mapError (fun err -> noticeError $"COUNT query failed: {err}" "Something was wrong.")
         return! Ok [ RMCount (subscriptionId, count) ]
     }
 
