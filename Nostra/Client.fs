@@ -121,6 +121,7 @@ module Client =
             | RMNotice of string
             | RMACK of EventId * bool * string
             | RMEOSE of string
+            | RMCount of SubscriptionId * int
 
         // Functions for interoperability with C#
         [<CompiledName("GetEvent")>]
@@ -166,6 +167,11 @@ module Client =
                             (Decode.index 1 Decode.eventId)
                             (Decode.index 2 Decode.bool)
                             (Decode.index 3 Decode.string)
+                    | "COUNT" ->
+                        Decode.map2
+                            (fun subscriptionId count -> RMCount(subscriptionId, count))
+                            (Decode.index 1 Decode.string)
+                            (Decode.index 2 (Decode.field "count" Decode.int))
                     | _ -> Decode.fail "Unknown message from the relay")
 
         let deserialize (str: string) =

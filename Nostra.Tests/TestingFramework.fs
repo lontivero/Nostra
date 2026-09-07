@@ -18,6 +18,7 @@ type Connection = {
 type User = {
     SentEvents : Event ResizeArray
     ReceivedEvents : Event ResizeArray
+    ReceivedCounts : (string * int) ResizeArray
     Secret : SecretKey
     Connection : Connection option
     Errors : string ResizeArray
@@ -28,6 +29,7 @@ module User =
         Secret = SecretKey.createNewRandom()
         SentEvents = ResizeArray<Event>()
         ReceivedEvents = ResizeArray<Event>()
+        ReceivedCounts = ResizeArray<string * int>()
         Connection = None
         Errors = ResizeArray<string>()
     }
@@ -134,6 +136,24 @@ let ``subscribe to`` subscriptionId (filterFactory: FilterFactory): TestStep =
 
 let ``subscribe to all events`` : TestStep =
     ``subscribe to`` "all" (fun _ -> "{}")
+
+let ``count`` subscriptionId (filterFactory: FilterFactory): TestStep =
+    fun ctx -> async {
+        let user = currentUser ctx
+        match user.Connection with
+        | Some conn ->
+            do! conn.Sender $"""["COUNT","{subscriptionId}",{filterFactory ctx}]"""
+            let! response = conn.Receiver
+            match response with
+            | Ok (RMCount(sid, count)) ->
+                user.ReceivedCounts.Add (sid, count)
+            | Ok (RMNotice(notice)) ->
+                user.Errors.Add notice
+            | _ -> failwith "Unexpected message"
+        | None ->
+            failwith $"User '{ctx.CurrentUser}' is not connected."
+        return ctx
+    }
 
 let notes : FilterFactory =
     fun ctx -> """{"kinds": [1]}"""

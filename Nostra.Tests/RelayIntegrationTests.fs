@@ -168,7 +168,7 @@ type ``Relay Nip40``(output:ITestOutputHelper) =
         ``start relay`` ()
         $ given Alice
         $ ``connect to relay``
-        $ ``send event`` (expirableNote "some text" (Utils.toUnixTime (System.DateTime.Now.AddSeconds 2)))
+        $ ``send event`` (expirableNote "some text" (Utils.toUnixTime (System.DateTime.UtcNow.AddSeconds 2)))
         $ given Bob
         $ ``connect to relay``
         $ ``subscribe to all events``
@@ -256,3 +256,48 @@ fi
 
             // Bob should receive all 3 events
             should equal 3 bob.ReceivedEvents.Count)
+
+type ``Relay Nip45``(output:ITestOutputHelper) =
+
+    [<Fact>]
+    let ``Can count events`` () =
+        ``start relay`` ()
+        $ given Alice
+        $ ``connect to relay``
+        $ ``send event`` (note "hello 1")
+        $ ``send event`` (note "hello 2")
+        $ ``send event`` (note "hello 3")
+        $ ``count`` "count1" notes
+        |>  verify (fun test ->
+            let user = currentUser test
+            should equal 1 user.ReceivedCounts.Count
+            let (subscriptionId, count) = user.ReceivedCounts[0]
+            should equal "count1" subscriptionId
+            should equal 3 count)
+
+    [<Fact>]
+    let ``Can count events with filter`` () =
+        ``start relay`` ()
+        $ given Alice
+        $ ``connect to relay``
+        $ ``send event`` (note "hello")
+        $ ``send event`` (reaction "+1")
+        $ ``send event`` (note "world")
+        $ ``count`` "notes-only" notes
+        |>  verify (fun test ->
+            let user = currentUser test
+            should equal 1 user.ReceivedCounts.Count
+            let (_, count) = user.ReceivedCounts[0]
+            should equal 2 count)
+
+    [<Fact>]
+    let ``Can count zero events`` () =
+        ``start relay`` ()
+        $ given Alice
+        $ ``connect to relay``
+        $ ``count`` "empty" notes
+        |>  verify (fun test ->
+            let user = currentUser test
+            should equal 1 user.ReceivedCounts.Count
+            let (_, count) = user.ReceivedCounts[0]
+            should equal 0 count)

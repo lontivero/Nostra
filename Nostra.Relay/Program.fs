@@ -136,6 +136,7 @@ let buildContext (config: RelayConfig) (logger: TextWriter) =
             saveEvent = Database.saveEvent dbconnection
             deleteEvents = Database.deleteEvents dbconnection
             fetchEvents = Database.fetchEvents dbconnection limits.DefaultLimit limits.MaxLimit
+            countEvents = Database.countEvents dbconnection limits.DefaultLimit limits.MaxLimit
         }
         clientRegistry = createClientRegistry ()
         logger = {
@@ -172,7 +173,7 @@ let app (config: RelayConfig) : WebPart =
                 match filterResult with
                 | Ok filter ->
                     asyncResult {
-                        let! events = filterEvents (env.eventStore.fetchEvents) [filter] DateTime.Now
+                        let! events = filterEvents (env.eventStore.fetchEvents) [filter] DateTime.UtcNow
                         return! events
                                 |> List.map Encode.string
                                 |> Encode.list

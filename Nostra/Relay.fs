@@ -94,6 +94,7 @@ module Relay =
             | CMEvent of Event
             | CMSubscribe of SubscriptionId * Filter list
             | CMUnsubscribe of SubscriptionId
+            | CMCount of SubscriptionId * Filter list
 
         module Decode =
             let listOfFilters : Decoder<Filter list> =
@@ -128,6 +129,11 @@ module Relay =
                             (fun subscriptionId filters -> CMSubscribe (subscriptionId, filters))
                             (Decode.index 1 Decode.string)
                             listOfFilters
+                    | "COUNT" ->
+                        Decode.map2
+                            (fun subscriptionId filters -> CMCount (subscriptionId, filters))
+                            (Decode.index 1 Decode.string)
+                            listOfFilters
                     | _ -> Decode.fail "Client request type is unknown")
 
         let deserialize str  =
@@ -139,6 +145,7 @@ module Relay =
             | RMNotice of string
             | RMAck of EventId * bool * string
             | RMEOSE of string
+            | RMCount of SubscriptionId * int
 
         module Encode =
             let quote (x: string) = "\"" + x + "\""
@@ -165,6 +172,11 @@ module Relay =
                     serialize (seq {
                         yield quote "EOSE"
                         yield quote subscriptionId})
+                | RMCount (subscriptionId, count) ->
+                    serialize (seq {
+                        yield quote "COUNT"
+                        yield quote subscriptionId
+                        yield $"{{\"count\":{count}}}"})
 
         let serialize (msg: RelayMessage) =
             msg |> Encode.relayMessage
@@ -266,7 +278,7 @@ module Relay =
                 Description = "Nostr Relay"
                 Pubkey = ""
                 Contact = ""
-                SupportedNips = [1; 2; 4; 9; 11; 12; 16; 20; 33; 40]
+                SupportedNips = [1; 2; 4; 9; 11; 12; 16; 20; 33; 40; 45]
                 Software = "https://github.com/lontivero/Nostra/"
                 Version = getAssemblyVersion ()
                 Limitation = Limitation.defaults
@@ -282,7 +294,7 @@ module Relay =
                         Contact = get.Optional.Field "contact" Decode.string |> Option.defaultValue defaults.Contact
                         SupportedNips = get.Optional.Field "supported_nips" (Decode.list Decode.int) |> Option.defaultValue defaults.SupportedNips
                         Software = get.Optional.Field "software" Decode.string |> Option.defaultValue defaults.Software
-                        Version = get.Optional.Field "version" Decode.string |> Option.defaultValue defaults.Version
+                        Version = getAssemblyVersion ()  // Always use assembly version, ignore config
                         Limitation = get.Optional.Field "limitation" Limitation.decode |> Option.defaultValue defaults.Limitation
                     })
 

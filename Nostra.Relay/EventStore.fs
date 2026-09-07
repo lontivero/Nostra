@@ -6,11 +6,13 @@ open Nostra.Relay
 type EventSaver = StoredEvent -> Async<Result<unit, exn>>
 type EventsDeleter = AuthorId -> string list -> Async<Result<int list, exn>>
 type EventsFetcher = Request.Filter list -> System.DateTime -> Async<Result<SerializedEvent list, exn>>
+type EventsCounter = Request.Filter list -> System.DateTime -> Async<Result<int, exn>>
 
 type EventStore = {
     saveEvent : EventSaver
     deleteEvents : EventsDeleter
     fetchEvents : EventsFetcher
+    countEvents : EventsCounter
 }
 
 let filterEvents (fetchEvents : EventsFetcher) filters =

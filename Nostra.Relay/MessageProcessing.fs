@@ -100,7 +100,7 @@ let processRequest (env : Context) (subscriptionStore : SubscriptionStore) reque
         do! (verifyCanSubscribe subscriptionId filters subscriptionStore limits)
         subscriptionStore[subscriptionId] <- filters
         let! matchingEvents =
-            filterEvents env.eventStore.fetchEvents filters DateTime.Now
+            filterEvents env.eventStore.fetchEvents filters DateTime.UtcNow
             |> AsyncResult.mapError (fun _ -> noticeError "Something was wrong.")
 
         let relayMessages =
@@ -112,5 +112,11 @@ let processRequest (env : Context) (subscriptionStore : SubscriptionStore) reque
     | CMUnsubscribe subscriptionId ->
         subscriptionStore.Remove subscriptionId |> ignore
         return! Ok []
+
+    | CMCount(subscriptionId, filters) ->
+        let! count =
+            env.eventStore.countEvents filters DateTime.UtcNow
+            |> AsyncResult.mapError (fun _ -> noticeError "Something was wrong.")
+        return! Ok [ RMCount (subscriptionId, count) ]
     }
 
