@@ -93,8 +93,8 @@ let webSocketHandler () =
         let subscriptions = Dictionary<SubscriptionId, Filter list>()
 
         let clientId =
-            let ip = context.clientIp true []
-            let port = context.clientPort true []
+            let ip = context.clientIp true ["127.0.0.1"]
+            let port = context.clientPort true ["127.0.0.1"]
             ClientId(ip , port)
 
         let cleanup () =
