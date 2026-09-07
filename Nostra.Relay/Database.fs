@@ -339,3 +339,12 @@ let fetchEvents connection defaultLimit maxLimit filters now =
     |> Sql.parameters parameters
     |> Sql.executeAsync (
         fun read -> read.string "serialized_event")
+
+let countEvents connection defaultLimit maxLimit filters now =
+    let query, parameters = buildQueryForFilters filters defaultLimit maxLimit now
+    let countQuery = $"SELECT COUNT(*) as cnt FROM ({query})"
+    connection
+    |> Sql.query countQuery
+    |> Sql.parameters parameters
+    |> Sql.executeAsync (fun read -> read.int "cnt")
+    |> AsyncResult.map (List.tryHead >> Option.defaultValue 0)
