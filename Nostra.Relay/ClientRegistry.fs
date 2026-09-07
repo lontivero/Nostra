@@ -18,17 +18,16 @@ type ClientRegistryAction =
     | Unsubscribe of ClientId
     | NotifyEvent of StoredEvent
 
-[<TailCall>]
-let rec processClientRegistrationRequestLoop
+let processClientRegistrationRequestLoop
         (evaluators: Dictionary<ClientId, EventEvaluator>)
         (notifyToAll: StoredEvent -> unit)
         (inbox: MailboxProcessor<ClientRegistryAction>) = async {
-    let! msg = inbox.Receive()
-    match msg with
-    | Subscribe (clientId, evaluator) -> evaluators.Add(clientId, evaluator)
-    | Unsubscribe clientId -> evaluators.Remove(clientId) |> ignore
-    | NotifyEvent storedEvent -> notifyToAll storedEvent
-    return! processClientRegistrationRequestLoop evaluators notifyToAll inbox
+    while true do
+        let! msg = inbox.Receive()
+        match msg with
+        | Subscribe (clientId, evaluator) -> evaluators.Add(clientId, evaluator)
+        | Unsubscribe clientId -> evaluators.Remove(clientId) |> ignore
+        | NotifyEvent storedEvent -> notifyToAll storedEvent
 }
 
 let createClientRegistry () =

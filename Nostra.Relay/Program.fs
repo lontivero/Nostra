@@ -20,6 +20,13 @@ open Suave.Sockets
 open Suave.Sockets.Control
 open Suave.WebSocket
 
+/// Lifts an Async<'a> into SocketOp<'a> for use inside socket { } CE
+let private liftAsync (a: Async<'a>) : SocketOp<'a> =
+    async {
+        let! r = a
+        return Choice1Of2 r
+    }
+
 [<TailCall>]
 let rec processRelayMessagesLoop
         (webSocket: WebSocket)
@@ -45,29 +52,40 @@ let rec processRequestLoop
     match msg with
     | Text, data, true ->
         let requestText = UTF8.toString data
-        processRequest requestText
-        |> AsyncResult.map (function
-        | [ ] -> ()
-        | final::messages ->
-            messages
-            |> List.rev
-            |> List.iter send
-            send final
-            ())
-        |> Async.RunSynchronously
-        |> Result.defaultWith (function
-            | BusinessError e ->
-                send e
-            | UnexpectedError e ->
-                env.logger.logError (e.ToString())
-                send (RMNotice "unexpected error"))
-
+        do! processRequest requestText
+            |> AsyncResult.map (function
+                | [ ] -> ()
+                | final::messages ->
+                    messages
+                    |> List.rev
+                    |> List.iter send
+                    send final
+                    ())
+            |> Async.map (Result.defaultWith (function
+                | BusinessError e ->
+                    send e
+                | UnexpectedError e ->
+                    env.logger.logError (e.ToString())
+                    send (RMNotice "unexpected error")))
+            |> liftAsync
         return! processRequestLoop clientId webSocket env send cleanup processRequest
     | Close, _, _ ->
         cleanup ()
         let emptyResponse = [||] |> ByteSegment
         do! webSocket.send Close emptyResponse true
-    | _ ->
+    | Ping, data, _ ->
+        do! webSocket.send Pong data true
+        return! processRequestLoop clientId webSocket env send cleanup processRequest
+    | Pong, _, _ ->
+        return! processRequestLoop clientId webSocket env send cleanup processRequest
+    | Binary, _, _ ->
+        env.logger.logDebug "Ignoring binary WebSocket frame"
+        return! processRequestLoop clientId webSocket env send cleanup processRequest
+    | Continuation, _, _ ->
+        env.logger.logDebug "Ignoring continuation WebSocket frame"
+        return! processRequestLoop clientId webSocket env send cleanup processRequest
+    | opcode, _, _ ->
+        env.logger.logWarn $"Unexpected WebSocket opcode: {opcode}"
         return! processRequestLoop clientId webSocket env send cleanup processRequest
 }
 let webSocketHandler () =
