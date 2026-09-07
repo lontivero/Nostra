@@ -273,19 +273,25 @@ let buildQueryForFilter (now : DateTime) (filter: Request.Filter) =
     |> fun es -> Projection("SELECT e.serialized_event, e.created_at, e.id FROM events e", es, filter.Limit)
 
 let rec materializeExpression defaultLimit maxLimit expression scope =
-    let paramName (Column(table, name)) = $"@s{scope}_{table}_{name}"
+    let paramName (Column(table, name)) suffix = $"@s{scope}_{table}_{name}{suffix}"
     let columnName (Column(table, name)) = $"{table}.{name}"
 
     match expression with
-    | EqualTo (column, value) -> $"{columnName column} = {paramName column}", [paramName column, value], scope
-    | GreaterThan (column, value) -> $"{columnName column} > {paramName column}", [paramName column, value], scope
-    | LessThan (column, value) -> $"{columnName column} < {paramName column}", [paramName column, value], scope
+    | EqualTo (column, value) ->
+        let pn = paramName column "_eq"
+        $"{columnName column} = {pn}", [pn, value], scope
+    | GreaterThan (column, value) ->
+        let pn = paramName column "_gt"
+        $"{columnName column} > {pn}", [pn, value], scope
+    | LessThan (column, value) ->
+        let pn = paramName column "_lt"
+        $"{columnName column} < {pn}", [pn, value], scope
     | In (column, values) ->
         match values with
         | SimpleList values ->
             let parameterValues =
                 values
-                |> List.mapi (fun i v -> (paramName column) + string i, v)
+                |> List.mapi (fun i v -> (paramName column "_in") + string i, v)
             let parameterNames = String.concat "," (parameterValues |> List.map fst)
             $"{columnName column} IN ({parameterNames})", parameterValues, scope
         | SelectList query ->
