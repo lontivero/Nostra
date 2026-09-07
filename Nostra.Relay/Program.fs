@@ -141,6 +141,7 @@ let buildContext (config: RelayConfig) (logger: TextWriter) =
         clientRegistry = createClientRegistry ()
         logger = {
             logInfo =  ifEnabled LogLevel.Info logger.WriteLine
+            logWarn = ifEnabled LogLevel.Warn logger.WriteLine
             logDebug = ifEnabled LogLevel.Debug logger.WriteLine
             logError = ifEnabled LogLevel.Error logger.WriteLine
         }

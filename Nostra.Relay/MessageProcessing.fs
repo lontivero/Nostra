@@ -41,10 +41,12 @@ let preprocessEvent (event : Event) serializedEvent =
         Seen = DateTime.UtcNow
     }
 
-let ackError eventId error =
+let ackError (logger: IOLogger) eventId error =
+    logger.logWarn $"Rejected event {eventId}: {error}"
     BusinessError (RMAck (eventId, false, error))
 
-let noticeError error =
+let noticeError (logger: IOLogger) error =
+    logger.logWarn $"Request rejected: {error}"
     BusinessError (RMNotice error)
 
 let checkWritePolicy (event: Event) (pluginManager: PluginManager) (timeoutSeconds: int) (sourceInfo: string) (logger: IOLogger) =
@@ -58,14 +60,14 @@ let checkWritePolicy (event: Event) (pluginManager: PluginManager) (timeoutSecon
         logger.logError $"{event.Id} {msg}"
         false
 
-let canPersistEvent (event : Event) (limits : Limitation) (pluginManager: PluginManager) (timeoutSeconds: int) (sourceInfo: string) (logger : IOLogger) = result {
+let canPersistEvent ackError (event : Event) (limits : Limitation) (pluginManager: PluginManager) (timeoutSeconds: int) (sourceInfo: string) (logger : IOLogger) = result {
     do! Result.requireTrue (ackError event.Id "invalid: too many tags") (event.Tags.Length <= limits.MaxEventTags)
     do! Result.requireTrue (ackError event.Id "invalid: content too large") (event.Content.Length <= limits.MaxContentLength)
     do! Result.requireTrue (ackError event.Id "invalid: the signature is incorrect") (Event.verify event)
     do! Result.requireTrue (ackError event.Id "event cannot be accepted") (checkWritePolicy event pluginManager timeoutSeconds sourceInfo logger)
     }
 
-let verifyCanSubscribe (subscriptionId : SubscriptionId) filters (subscriptionStore : SubscriptionStore) (limits : Limitation) = result {
+let verifyCanSubscribe noticeError (subscriptionId : SubscriptionId) filters (subscriptionStore : SubscriptionStore) (limits : Limitation) = result {
     do! Result.requireTrue (noticeError "too large subscription id") (subscriptionId.Length <= limits.MaxSubidLength)
     let filterCount = Seq.length filters
     do! Result.requireTrue (noticeError "too many filters") (filterCount <= limits.MaxFilters)
@@ -76,6 +78,8 @@ let verifyCanSubscribe (subscriptionId : SubscriptionId) filters (subscriptionSt
 
 let processRequest (env : Context) (subscriptionStore : SubscriptionStore) requestText = asyncResult {
     let limits = env.config.RelayInfo.Limitation
+    let ackError = ackError env.logger
+    let noticeError = noticeError env.logger
 
     let! request =
         deserialize requestText
@@ -88,7 +92,7 @@ let processRequest (env : Context) (subscriptionStore : SubscriptionStore) reque
     match request with
     | CMEvent event ->
         let timeoutSeconds = env.config.WritePolicy.TimeoutSeconds
-        do! canPersistEvent event limits env.pluginManager timeoutSeconds "websocket" env.logger
+        do! canPersistEvent ackError event limits env.pluginManager timeoutSeconds "websocket" env.logger
         let serializedEvent = requestText[(requestText.IndexOf "{")..(requestText.LastIndexOf "}")]
 
         let preprocessedEvent = preprocessEvent event serializedEvent
@@ -97,7 +101,7 @@ let processRequest (env : Context) (subscriptionStore : SubscriptionStore) reque
         return! Ok [ RMAck (event.Id, true, "added") ]
 
     | CMSubscribe(subscriptionId, filters) ->
-        do! (verifyCanSubscribe subscriptionId filters subscriptionStore limits)
+        do! (verifyCanSubscribe noticeError subscriptionId filters subscriptionStore limits)
         subscriptionStore[subscriptionId] <- filters
         let! matchingEvents =
             filterEvents env.eventStore.fetchEvents filters DateTime.UtcNow
