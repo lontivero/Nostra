@@ -58,10 +58,10 @@ let checkWritePolicy (event: Event) (pluginManager: PluginManager) (timeoutSecon
     match action with
     | Ok Accept -> true
     | Ok (Reject msg) ->
-        logger.logInfo $"{event.Id} blocked: {msg}"
+        logger.logInfo $"blocked: {msg}"
         false
     | Result.Error msg ->
-        logger.logError $"{event.Id} {msg}"
+        logger.logError $"{msg}"
         false
 
 let canPersistEvent (event : Event) (limits : Limitation) (pluginManager: PluginManager) (timeoutSeconds: int) (sourceInfo: string) (logger : IOLogger) : Result<unit, ValidationFailure> = result {
