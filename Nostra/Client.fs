@@ -246,6 +246,7 @@ module Client =
                 }
                 Logger = {
                     logInfo = log.WriteLine
+                    logWarn = log.WriteLine
                     logDebug = log.WriteLine
                     logError = log.WriteLine
                 }

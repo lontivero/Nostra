@@ -106,6 +106,7 @@ module ClientContext =
 
     type IOLogger =
         { logInfo: Writer<string>
+          logWarn: Writer<string>
           logDebug: Writer<string>
           logError: Writer<string> }
 
