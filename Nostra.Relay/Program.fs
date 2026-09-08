@@ -16,17 +16,11 @@ open EventStore
 open ClientRegistry
 open MessageProcessing
 
+open System.Text
 open Suave
 open Suave.Sockets
 open Suave.Sockets.Control
 open Suave.WebSocket
-
-/// Lifts an Async<'a> into SocketOp<'a> for use inside socket { } CE
-let private liftAsync (a: Async<'a>) : SocketOp<'a> =
-    async {
-        let! r = a
-        return Choice1Of2 r
-    }
 
 [<TailCall>]
 let rec processRelayMessagesLoop
@@ -35,7 +29,8 @@ let rec processRelayMessagesLoop
         (inbox: MailboxProcessor<RelayMessage>) = async {
     let! msg = inbox.Receive()
     try
-        let! _ = webSocket.send Text (toPayload msg) true
+        let send = webSocket.send Text (toPayload msg) true
+        let! _ = send.AsTask() |> Async.AwaitTask
         return! processRelayMessagesLoop webSocket cleanup inbox
     with _ ->
         cleanup ()
@@ -61,7 +56,7 @@ let private processCompleteMessage
         | UnexpectedError e ->
             env.logger.logError (e.ToString())
             send (RMNotice "unexpected error")))
-    |> liftAsync
+    |> SocketOp.ofAsync
 
 [<TailCall>]
 let rec processRequestLoop
@@ -76,35 +71,35 @@ let rec processRequestLoop
     match msg with
     | Text, data, true when fragmentBuffer.Count = 0 ->
         // Complete message, no pending fragments
-        let requestText = UTF8.toString data
+        let requestText = Encoding.UTF8.GetString(data.Span)
         do! processCompleteMessage env send processRequest requestText
         return! processRequestLoop clientId webSocket env send cleanup processRequest fragmentBuffer
     | Text, data, true ->
         // Final fragment - combine with buffer and process
-        fragmentBuffer.AddRange(data)
-        let requestText = UTF8.toString (fragmentBuffer.ToArray())
+        fragmentBuffer.AddRange(data.ToArray())
+        let requestText = Encoding.UTF8.GetString(fragmentBuffer.ToArray())
         fragmentBuffer.Clear()
         do! processCompleteMessage env send processRequest requestText
         return! processRequestLoop clientId webSocket env send cleanup processRequest fragmentBuffer
     | Text, data, false ->
         // First fragment of a fragmented message
         fragmentBuffer.Clear()
-        fragmentBuffer.AddRange(data)
+        fragmentBuffer.AddRange(data.ToArray())
         return! processRequestLoop clientId webSocket env send cleanup processRequest fragmentBuffer
     | Continuation, data, false ->
         // Continuation fragment, not final
-        fragmentBuffer.AddRange(data)
+        fragmentBuffer.AddRange(data.ToArray())
         return! processRequestLoop clientId webSocket env send cleanup processRequest fragmentBuffer
     | Continuation, data, true ->
         // Final continuation fragment - combine and process
-        fragmentBuffer.AddRange(data)
-        let requestText = UTF8.toString (fragmentBuffer.ToArray())
+        fragmentBuffer.AddRange(data.ToArray())
+        let requestText = Encoding.UTF8.GetString(fragmentBuffer.ToArray())
         fragmentBuffer.Clear()
         do! processCompleteMessage env send processRequest requestText
         return! processRequestLoop clientId webSocket env send cleanup processRequest fragmentBuffer
     | Close, _, _ ->
         cleanup ()
-        let emptyResponse = [||] |> ByteSegment
+        let emptyResponse = System.Memory<byte>.Empty
         do! webSocket.send Close emptyResponse true
     | Ping, data, _ ->
         do! webSocket.send Pong data true
@@ -222,7 +217,7 @@ let app (config: RelayConfig) : WebPart =
         POST >=> path "/api/req" >=>
             fun ctx ->
                 let filterResult =
-                    UTF8.toString ctx.request.rawForm
+                    Encoding.UTF8.GetString(ctx.request.rawForm)
                     |> Decode.fromString Filter.Decode.filter
 
                 match filterResult with
@@ -242,28 +237,6 @@ let app (config: RelayConfig) : WebPart =
 
                 | Result.Error e -> BAD_REQUEST e ctx
     ]
-
-open Suave.Logging
-
-let loggingOptions =
-  { Literate.LiterateOptions.create() with
-      getLogLevelText = function Verbose->"V" | Debug->"D" | Info->"I" | Warn->"W" | Error->"E" | Fatal->"F" }
-
-let toSuaveLogLevel = function
-    | Configuration.LogLevel.Verbose -> Verbose
-    | Configuration.LogLevel.Debug -> Debug
-    | Configuration.LogLevel.Info -> Info
-    | Configuration.LogLevel.Warn -> Warn
-    | Configuration.LogLevel.Error -> Error
-    | Configuration.LogLevel.Fatal -> Fatal
-
-let createLogger (logLevel: Configuration.LogLevel) =
-    LiterateConsoleTarget(
-        name = [|"Nostra"|],
-        minLevel = toSuaveLogLevel logLevel,
-        options = loggingOptions,
-        outputTemplate = "[{level}] {timestampUtc:o} {message} [{source}]{exceptions}"
-    ) :> Logger
 
 let getDefaultDataDirectory () =
     if RuntimeInformation.IsOSPlatform(OSPlatform.Windows) then
@@ -295,7 +268,6 @@ let main argv =
         else { config with DatabasePath = Path.Combine(dataDir, config.DatabasePath) }
 
     let cts = new CancellationTokenSource()
-    let logger = createLogger config.LogLevel
-    let conf = { defaultConfig with cancellationToken = cts.Token; logger = logger }
+    let conf = { defaultConfig with cancellationToken = cts.Token }
     startWebServer conf (app config)
     0

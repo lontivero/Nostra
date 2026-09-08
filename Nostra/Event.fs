@@ -1,4 +1,4 @@
-﻿namespace Nostra
+namespace Nostra
 
 open System
 open System.Security.Cryptography
@@ -7,7 +7,6 @@ open Microsoft.FSharp.Core
 open NBitcoin.Secp256k1
 open Thoth.Json.Net
 
-[<Struct>]
 type Kind =
     | Metadata = 0
     | Text = 1
@@ -172,7 +171,7 @@ module Event =
           Kind = event.Kind
           Tags = event.Tags
           Content = event.Content
-          Signature = SecretKey.sign eventId secret |> SchnorrSignature }
+          Signature = SecretKey.sign (ReadOnlySpan eventId) secret |> SchnorrSignature }
 
     [<CompiledName("Verify")>]
     let verify (event: Event) =

@@ -44,7 +44,7 @@ type TestStep = TestContext -> Async<TestContext>
 type FilterFactory = TestContext -> string
 type EventFactory = TestContext -> Event.UnsignedEvent
 
-let ($) prev next = prev |> Async.bind next
+let ($) prev next = async.Bind(prev, next)
 
 let currentUser ctx = ctx.Users[ctx.CurrentUser]
 
