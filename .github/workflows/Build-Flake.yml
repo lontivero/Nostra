@@ -12,5 +12,5 @@ jobs:
       with:
         nix_path: nixpkgs=channel:nixos-unstable
     - uses: DeterminateSystems/magic-nix-cache-action@v2
-    - run: nix build --print-build-logs Contrib/
+    - run: nix build --print-build-logs
     - run: echo OK
