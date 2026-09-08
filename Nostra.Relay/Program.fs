@@ -4,6 +4,7 @@ open System.Collections.Generic
 open System.IO
 open System.Runtime.InteropServices
 open System.Threading
+open Microsoft.Data.Sqlite
 open Microsoft.FSharp.Control
 open FsToolkit.ErrorHandling
 open Nostra
@@ -167,8 +168,13 @@ let relayInformationDocument (relayInfo: RelayInfo) =
 
 let buildContext (config: RelayConfig) (logger: TextWriter) =
     let connectionString = $"Data Source={config.DatabasePath}"
-    let dbconnection = Database.openConnection connectionString
-    Database.createTables dbconnection
+    let connectionFactory () =
+        let conn = new SqliteConnection(connectionString)
+        conn.Open()
+        conn
+
+    use initConn = connectionFactory ()
+    Database.createTables (Fumble.Sql.existingConnection initConn)
 
     let limits = config.RelayInfo.Limitation
     let ifEnabled minLevel action =
@@ -181,10 +187,10 @@ let buildContext (config: RelayConfig) (logger: TextWriter) =
 
     {
         eventStore = {
-            saveEvent = Database.saveEvent dbconnection
-            deleteEvents = Database.deleteEvents dbconnection
-            fetchEvents = Database.fetchEvents dbconnection limits.DefaultLimit limits.MaxLimit
-            countEvents = Database.countEvents dbconnection limits.DefaultLimit limits.MaxLimit
+            saveEvent = Database.saveEvent connectionFactory
+            deleteEvents = Database.deleteEvents connectionFactory
+            fetchEvents = Database.fetchEvents connectionFactory limits.DefaultLimit limits.MaxLimit
+            countEvents = Database.countEvents connectionFactory limits.DefaultLimit limits.MaxLimit
         }
         clientRegistry = createClientRegistry ()
         logger = {
