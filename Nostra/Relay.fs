@@ -181,11 +181,11 @@ module Relay =
         let serialize (msg: RelayMessage) =
             msg |> Encode.relayMessage
 
-        let toPayload (msg: RelayMessage) =
+        let toPayload (msg: RelayMessage) : Memory<byte> =
             msg
             |> serialize
             |> Encoding.UTF8.GetBytes
-            |> ArraySegment
+            |> Memory
 
     module InfoDocument =
         type Limitation = {

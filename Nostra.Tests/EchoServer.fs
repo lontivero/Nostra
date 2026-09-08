@@ -7,11 +7,11 @@ open Suave
 open Suave.Filters
 open Suave.WebSocket
 open Suave.Operators
-open Suave.Sockets.Control.SocketMonad
+open Suave.Sockets.Control
 
 module EchoServer =
     let startEchoServer ct =
-        let local = Suave.Http.HttpBinding.createSimple HTTP "127.0.0.1" 0
+        let local = HttpBinding.createSimple HTTP "127.0.0.1" 0
 
         let conf = { defaultConfig with cancellationToken = ct; bindings = [local] }
         let listening, server = startWebServerAsync conf (
@@ -21,10 +21,10 @@ module EchoServer =
                         let! msg = ws.read()
                         match msg with
                         | Text, data, true ->
-                            do! ws.send Text (ArraySegment data) true
+                            do! ws.send Text data true
                             return! loop ()
                         | Close, _, _ ->
-                            let emptyResponse = ArraySegment [||]
+                            let emptyResponse = Memory<byte>.Empty
                             do! ws.send Close emptyResponse true
                         | _ ->
                             return! loop ()
@@ -32,7 +32,6 @@ module EchoServer =
                     loop ()
                 )
         )
-        Async.Start(server, ct)
         let startedData = listening |> Async.RunSynchronously
         int startedData[0].Value.binding.port
 
@@ -106,11 +105,10 @@ module Relay =
         let env = buildContext config TextWriter.Null
         let wsHandler = Monad.injectedWith env (webSocketHandler ())
 
-        let local = Http.HttpBinding.createSimple HTTP "127.0.0.1" 0
+        let local = HttpBinding.createSimple HTTP "127.0.0.1" 0
         let conf = { defaultConfig with cancellationToken = ct; bindings = [local] }
         let listening, server = startWebServerAsync conf (path "/" >=> handShake wsHandler)
 
-        Async.Start(server, ct)
         let startedData = listening |> Async.RunSynchronously
         int startedData[0].Value.binding.port
 

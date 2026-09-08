@@ -135,6 +135,7 @@ module NostrService =
         | Ok (RMACK (_, success, msg)) ->
             if not success then
                 client.OnMessage $"[{client.RelayUrl}] Error: {msg}"
+        | Ok (RMCount _) -> ()
         | Error e ->
             client.OnMessage $"[{client.RelayUrl}] Error: {e}"
 

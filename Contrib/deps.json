@@ -11,8 +11,8 @@
   },
   {
     "pname": "FSharp.Core",
-    "version": "9.0.202",
-    "hash": "sha256-64Gub0qemmCoMa1tDus6TeTuB1+5sHfE6KD2j4o84mA="
+    "version": "10.0.102",
+    "hash": "sha256-wHpFHhigRcGlbgLXMCO/PiLxUIjzGoFOyU3BfGB80go="
   },
   {
     "pname": "FsToolkit.ErrorHandling",
@@ -126,8 +126,8 @@
   },
   {
     "pname": "Suave",
-    "version": "2.6.2",
-    "hash": "sha256-Dhe1jTU2pFdx15LPsii7mQZM4t/uSvzKP1hOA6rh7vs="
+    "version": "3.4.6",
+    "hash": "sha256-MPYzaYLqhjl/GAhgZyU0tzAAdmsQFDdFyscnSmWzsYA="
   },
   {
     "pname": "Thoth.Json.Net",
