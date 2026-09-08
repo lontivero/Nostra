@@ -182,7 +182,7 @@ type ``Relay Nip40``(output:ITestOutputHelper) =
         ``start relay`` ()
         $ given Alice
         $ ``connect to relay``
-        $ ``send event`` (expirableNote "some text" (Utils.toUnixTime (System.DateTime.Now.AddSeconds -2)))
+        $ ``send event`` (expirableNote "some text" (Utils.toUnixTime (System.DateTime.UtcNow.AddSeconds -2)))
         $ given Bob
         $ ``connect to relay``
         $ ``subscribe to all events``
