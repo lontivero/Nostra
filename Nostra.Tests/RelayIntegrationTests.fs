@@ -301,3 +301,60 @@ type ``Relay Nip45``(output:ITestOutputHelper) =
             should equal 1 user.ReceivedCounts.Count
             let (_, count) = user.ReceivedCounts[0]
             should equal 0 count)
+
+type ``Relay WebSocket Fragmentation``(output:ITestOutputHelper) =
+
+    [<Fact>]
+    let ``Can receive fragmented WebSocket message`` () = async {
+        use cts = new System.Threading.CancellationTokenSource()
+        let port = Nostra.Tests.Relay.startRelay cts.Token
+
+        let! _, sendFragmented, receive = Nostra.Tests.Client.createClientWithFragmentedSend port
+
+        // Create a valid event
+        let event = Event.createNote "Hello from fragmented message" |> Event.sign (SecretKey.createNewRandom())
+        let serializedEvent = Event.serialize event
+        let fullMessage = $"""["EVENT",{serializedEvent}]"""
+
+        // Split the message into 3 fragments
+        let partSize = fullMessage.Length / 3
+        let frag1 = fullMessage.Substring(0, partSize)
+        let frag2 = fullMessage.Substring(partSize, partSize)
+        let frag3 = fullMessage.Substring(partSize * 2)
+
+        // Send as fragmented message
+        do! sendFragmented [frag1; frag2; frag3]
+
+        // Should receive OK response
+        let! msg = receive
+        match msg with
+        | Ok (Nostra.Client.Response.RMACK(_, success, _)) -> should equal true success
+        | Ok other -> failwith $"Expected RMACK but got {other}"
+        | Result.Error e -> failwith $"Error: {e}"
+    }
+
+    [<Fact>]
+    let ``Can receive two-fragment WebSocket message`` () = async {
+        use cts = new System.Threading.CancellationTokenSource()
+        let port = Nostra.Tests.Relay.startRelay cts.Token
+
+        let! _, sendFragmented, receive = Nostra.Tests.Client.createClientWithFragmentedSend port
+
+        // Create a valid event
+        let event = Event.createNote "Two fragments" |> Event.sign (SecretKey.createNewRandom())
+        let serializedEvent = Event.serialize event
+        let fullMessage = $"""["EVENT",{serializedEvent}]"""
+
+        // Split into 2 fragments
+        let midpoint = fullMessage.Length / 2
+        let frag1 = fullMessage.Substring(0, midpoint)
+        let frag2 = fullMessage.Substring(midpoint)
+
+        do! sendFragmented [frag1; frag2]
+
+        let! msg = receive
+        match msg with
+        | Ok (Nostra.Client.Response.RMACK(_, success, _)) -> should equal true success
+        | Ok other -> failwith $"Expected RMACK but got {other}"
+        | Result.Error e -> failwith $"Error: {e}"
+    }

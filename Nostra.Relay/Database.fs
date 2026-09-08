@@ -8,10 +8,11 @@ open Microsoft.FSharp.Collections
 open Nostra
 open Nostra.Relay
 
-let openConnection connectionString =
-    let conn = new SqliteConnection(connectionString)
-    conn.Open()
-    Sql.existingConnection conn
+let executeWithConnection connectionFactory operation = async {
+    use conn = connectionFactory()
+    let sqlProps = Sql.existingConnection conn
+    return! operation sqlProps
+}
 
 let createTables connection =
 
@@ -168,37 +169,40 @@ let handleParameterizedReplacement connection author kind createdAt dtag =
        | true -> AsyncResult.ok false  // newer exists, don't save
        | false -> deleteParameterizedReplacement connection author kind dtag |> AsyncResult.map (fun _ -> true))  // deleted old, proceed to save
 
-let saveEvent connection (preprocessedEvent: StoredEvent) = asyncResult {
-    let event = preprocessedEvent.Event
-    let (EventId eventId) = event.Id
-    let (AuthorId author) = event.PubKey
-    let author = author.ToBytes()
-    let kind = int event.Kind
-    let createdAt = event.CreatedAt
-    let dtag = Tag.findByKey "d" preprocessedEvent.Event.Tags |> List.tryHead |> Option.defaultValue ""
+let saveEvent connectionFactory (preprocessedEvent: StoredEvent) =
+    executeWithConnection connectionFactory (fun connection -> asyncResult {
+        let event = preprocessedEvent.Event
+        let (EventId eventId) = event.Id
+        let (AuthorId author) = event.PubKey
+        let author = author.ToBytes()
+        let kind = int event.Kind
+        let createdAt = event.CreatedAt
+        let dtag = Tag.findByKey "d" preprocessedEvent.Event.Tags |> List.tryHead |> Option.defaultValue ""
 
-    let! shouldSave =
-        if Event.isReplaceable event then
-            handleReplacement connection author kind createdAt
-        elif Event.isParameterizableReplaceable event then
-            handleParameterizedReplacement connection author kind createdAt dtag
-        else
-            AsyncResult.ok true
+        let! shouldSave =
+            if Event.isReplaceable event then
+                handleReplacement connection author kind createdAt
+            elif Event.isParameterizableReplaceable event then
+                handleParameterizedReplacement connection author kind createdAt dtag
+            else
+                AsyncResult.ok true
 
-    if shouldSave then
-        return! save connection eventId author preprocessedEvent |> AsyncResult.ignore
-}
+        if shouldSave then
+            return! save connection eventId author preprocessedEvent |> AsyncResult.ignore
+    })
 
-let deleteEvents connection (AuthorId author) eventIds =
-    let eventIdsParameters = String.Join(",", eventIds |> List.mapi (fun i _ -> $"@event_hash{i}"))
-    connection
-    |> Sql.executeTransactionAsync [
-        $"UPDATE events SET deleted = TRUE WHERE kind != 5 AND author = @author AND event_hash IN ({eventIdsParameters})",
-        [[ "@author", Sql.bytes (author.ToBytes()) ]
-         @
-         (eventIds |> List.mapi (fun i eventId -> $"@event_hash{i}", Sql.bytes (Utils.fromHex eventId)))
+let deleteEvents connectionFactory (AuthorId author) eventIds =
+    executeWithConnection connectionFactory (fun connection ->
+        let eventIdsParameters = String.Join(",", eventIds |> List.mapi (fun i _ -> $"@event_hash{i}"))
+        connection
+        |> Sql.executeTransactionAsync [
+            $"UPDATE events SET deleted = TRUE WHERE kind != 5 AND author = @author AND event_hash IN ({eventIdsParameters})",
+            [[ "@author", Sql.bytes (author.ToBytes()) ]
+             @
+             (eventIds |> List.mapi (fun i eventId -> $"@event_hash{i}", Sql.bytes (Utils.fromHex eventId)))
+            ]
         ]
-    ]
+    )
 
 type Column = | Column of string * string
 type Limit = int option
@@ -338,19 +342,23 @@ let buildQueryForFilters (filters: Request.Filter list) (defaultLimit : int) (ma
         let (unionQuery, unionParms) = List.fold (fun (select1, parms1) (select2, parms2) -> ($"{select1} UNION {select2}", parms1 @ parms2)) head tail
         (unionQuery + " ORDER BY created_at DESC, id DESC", unionParms)
 
-let fetchEvents connection defaultLimit maxLimit filters now =
-    let query, parameters = buildQueryForFilters filters defaultLimit maxLimit now
-    connection
-    |> Sql.query query
-    |> Sql.parameters parameters
-    |> Sql.executeAsync (
-        fun read -> read.string "serialized_event")
+let fetchEvents connectionFactory defaultLimit maxLimit filters now =
+    executeWithConnection connectionFactory (fun connection ->
+        let query, parameters = buildQueryForFilters filters defaultLimit maxLimit now
+        connection
+        |> Sql.query query
+        |> Sql.parameters parameters
+        |> Sql.executeAsync (
+            fun read -> read.string "serialized_event")
+    )
 
-let countEvents connection defaultLimit maxLimit filters now =
-    let query, parameters = buildQueryForFilters filters defaultLimit maxLimit now
-    let countQuery = $"SELECT COUNT(*) as cnt FROM ({query})"
-    connection
-    |> Sql.query countQuery
-    |> Sql.parameters parameters
-    |> Sql.executeAsync (fun read -> read.int "cnt")
-    |> AsyncResult.map (List.tryHead >> Option.defaultValue 0)
+let countEvents connectionFactory defaultLimit maxLimit filters now =
+    executeWithConnection connectionFactory (fun connection ->
+        let query, parameters = buildQueryForFilters filters defaultLimit maxLimit now
+        let countQuery = $"SELECT COUNT(*) as cnt FROM ({query})"
+        connection
+        |> Sql.query countQuery
+        |> Sql.parameters parameters
+        |> Sql.executeAsync (fun read -> read.int "cnt")
+        |> AsyncResult.map (List.tryHead >> Option.defaultValue 0)
+    )

@@ -58,6 +58,45 @@ module Client =
     let createClientDefaultPort () =
         createClient 8080
 
+    let createClientWithFragmentedSend port =
+        let ws = new ClientWebSocket()
+        let ctx = Communication.buildContext ws Console.Out
+        let send (msg: string) =
+            let payload = msg |> Encoding.UTF8.GetBytes
+            ctx.WebSocket.write payload
+        let sendFragmented (fragments: string list) = async {
+            let! ct = Async.CancellationToken
+            match fragments with
+            | [] -> ()
+            | [single] ->
+                let payload = Encoding.UTF8.GetBytes(single: string)
+                do! ws.SendAsync(ArraySegment(payload), WebSocketMessageType.Text, true, ct) |> Async.AwaitTask
+            | first :: rest ->
+                // Send first fragment with fin=false
+                let firstPayload = Encoding.UTF8.GetBytes(first: string)
+                do! ws.SendAsync(ArraySegment(firstPayload), WebSocketMessageType.Text, false, ct) |> Async.AwaitTask
+                // Send continuation fragments
+                let rec sendMore remaining = async {
+                    match remaining with
+                    | [] -> ()
+                    | [last] ->
+                        // Last fragment with fin=true
+                        let lastPayload = Encoding.UTF8.GetBytes(last: string)
+                        do! ws.SendAsync(ArraySegment(lastPayload), WebSocketMessageType.Text, true, ct) |> Async.AwaitTask
+                    | middle :: more ->
+                        let middlePayload = Encoding.UTF8.GetBytes(middle: string)
+                        do! ws.SendAsync(ArraySegment(middlePayload), WebSocketMessageType.Text, false, ct) |> Async.AwaitTask
+                        do! sendMore more
+                }
+                do! sendMore rest
+        }
+        let receive = Communication.receiveMessage |> injectedWith ctx
+        async {
+            let! ct = Async.CancellationToken
+            do! ws.ConnectAsync (Uri $"ws://127.0.0.1:{port}/", ct) |> Async.AwaitTask
+            return send, sendFragmented, receive
+        }
+
 module Relay =
     open Relay
     open Relay.Configuration

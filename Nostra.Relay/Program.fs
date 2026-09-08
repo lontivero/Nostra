@@ -4,6 +4,7 @@ open System.Collections.Generic
 open System.IO
 open System.Runtime.InteropServices
 open System.Threading
+open Microsoft.Data.Sqlite
 open Microsoft.FSharp.Control
 open FsToolkit.ErrorHandling
 open Nostra
@@ -40,6 +41,28 @@ let rec processRelayMessagesLoop
         cleanup ()
 }
 
+let private processCompleteMessage
+        (env: Context)
+        (send: RelayMessage -> unit)
+        (processRequest: string -> Async<Result<RelayMessage list,EventProcessingError>>)
+        (requestText: string) =
+    processRequest requestText
+    |> AsyncResult.map (function
+        | [ ] -> ()
+        | final::messages ->
+            messages
+            |> List.rev
+            |> List.iter send
+            send final
+            ())
+    |> Async.map (Result.defaultWith (function
+        | BusinessError e ->
+            send e
+        | UnexpectedError e ->
+            env.logger.logError (e.ToString())
+            send (RMNotice "unexpected error")))
+    |> liftAsync
+
 [<TailCall>]
 let rec processRequestLoop
         (clientId: ClientId)
@@ -47,46 +70,53 @@ let rec processRequestLoop
         (env: Context)
         (send: RelayMessage -> unit)
         (cleanup: unit -> unit)
-        (processRequest: string -> Async<Result<RelayMessage list,EventProcessingError>>) = socket {
+        (processRequest: string -> Async<Result<RelayMessage list,EventProcessingError>>)
+        (fragmentBuffer: ResizeArray<byte>) = socket {
     let! msg = webSocket.read()
     match msg with
-    | Text, data, true ->
+    | Text, data, true when fragmentBuffer.Count = 0 ->
+        // Complete message, no pending fragments
         let requestText = UTF8.toString data
-        do! processRequest requestText
-            |> AsyncResult.map (function
-                | [ ] -> ()
-                | final::messages ->
-                    messages
-                    |> List.rev
-                    |> List.iter send
-                    send final
-                    ())
-            |> Async.map (Result.defaultWith (function
-                | BusinessError e ->
-                    send e
-                | UnexpectedError e ->
-                    env.logger.logError (e.ToString())
-                    send (RMNotice "unexpected error")))
-            |> liftAsync
-        return! processRequestLoop clientId webSocket env send cleanup processRequest
+        do! processCompleteMessage env send processRequest requestText
+        return! processRequestLoop clientId webSocket env send cleanup processRequest fragmentBuffer
+    | Text, data, true ->
+        // Final fragment - combine with buffer and process
+        fragmentBuffer.AddRange(data)
+        let requestText = UTF8.toString (fragmentBuffer.ToArray())
+        fragmentBuffer.Clear()
+        do! processCompleteMessage env send processRequest requestText
+        return! processRequestLoop clientId webSocket env send cleanup processRequest fragmentBuffer
+    | Text, data, false ->
+        // First fragment of a fragmented message
+        fragmentBuffer.Clear()
+        fragmentBuffer.AddRange(data)
+        return! processRequestLoop clientId webSocket env send cleanup processRequest fragmentBuffer
+    | Continuation, data, false ->
+        // Continuation fragment, not final
+        fragmentBuffer.AddRange(data)
+        return! processRequestLoop clientId webSocket env send cleanup processRequest fragmentBuffer
+    | Continuation, data, true ->
+        // Final continuation fragment - combine and process
+        fragmentBuffer.AddRange(data)
+        let requestText = UTF8.toString (fragmentBuffer.ToArray())
+        fragmentBuffer.Clear()
+        do! processCompleteMessage env send processRequest requestText
+        return! processRequestLoop clientId webSocket env send cleanup processRequest fragmentBuffer
     | Close, _, _ ->
         cleanup ()
         let emptyResponse = [||] |> ByteSegment
         do! webSocket.send Close emptyResponse true
     | Ping, data, _ ->
         do! webSocket.send Pong data true
-        return! processRequestLoop clientId webSocket env send cleanup processRequest
+        return! processRequestLoop clientId webSocket env send cleanup processRequest fragmentBuffer
     | Pong, _, _ ->
-        return! processRequestLoop clientId webSocket env send cleanup processRequest
+        return! processRequestLoop clientId webSocket env send cleanup processRequest fragmentBuffer
     | Binary, _, _ ->
         env.logger.logDebug "Ignoring binary WebSocket frame"
-        return! processRequestLoop clientId webSocket env send cleanup processRequest
-    | Continuation, _, _ ->
-        env.logger.logDebug "Ignoring continuation WebSocket frame"
-        return! processRequestLoop clientId webSocket env send cleanup processRequest
+        return! processRequestLoop clientId webSocket env send cleanup processRequest fragmentBuffer
     | opcode, _, _ ->
         env.logger.logWarn $"Unexpected WebSocket opcode: {opcode}"
-        return! processRequestLoop clientId webSocket env send cleanup processRequest
+        return! processRequestLoop clientId webSocket env send cleanup processRequest fragmentBuffer
 }
 let webSocketHandler () =
     let handle (env : Context) (webSocket : WebSocket) (context: HttpContext) =
@@ -116,7 +146,8 @@ let webSocketHandler () =
         let processRequest req = processRequest env clientId subscriptions req
 
         env.clientRegistry.subscribe clientId notifyEvent
-        processRequestLoop clientId webSocket env send cleanup processRequest
+        let fragmentBuffer = ResizeArray<byte>()
+        processRequestLoop clientId webSocket env send cleanup processRequest fragmentBuffer
     Monad.Reader (fun (ctx : Context) -> handle ctx)
 
 open Suave.Operators
@@ -137,8 +168,13 @@ let relayInformationDocument (relayInfo: RelayInfo) =
 
 let buildContext (config: RelayConfig) (logger: TextWriter) =
     let connectionString = $"Data Source={config.DatabasePath}"
-    let dbconnection = Database.openConnection connectionString
-    Database.createTables dbconnection
+    let connectionFactory () =
+        let conn = new SqliteConnection(connectionString)
+        conn.Open()
+        conn
+
+    use initConn = connectionFactory ()
+    Database.createTables (Fumble.Sql.existingConnection initConn)
 
     let limits = config.RelayInfo.Limitation
     let ifEnabled minLevel action =
@@ -151,10 +187,10 @@ let buildContext (config: RelayConfig) (logger: TextWriter) =
 
     {
         eventStore = {
-            saveEvent = Database.saveEvent dbconnection
-            deleteEvents = Database.deleteEvents dbconnection
-            fetchEvents = Database.fetchEvents dbconnection limits.DefaultLimit limits.MaxLimit
-            countEvents = Database.countEvents dbconnection limits.DefaultLimit limits.MaxLimit
+            saveEvent = Database.saveEvent connectionFactory
+            deleteEvents = Database.deleteEvents connectionFactory
+            fetchEvents = Database.fetchEvents connectionFactory limits.DefaultLimit limits.MaxLimit
+            countEvents = Database.countEvents connectionFactory limits.DefaultLimit limits.MaxLimit
         }
         clientRegistry = createClientRegistry ()
         logger = {
