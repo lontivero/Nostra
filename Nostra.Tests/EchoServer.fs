@@ -127,3 +127,16 @@ module Relay =
         let uniqueDb = $"file:test{Guid.NewGuid():N}?mode=memory&cache=shared"
         let config = { RelayConfig.defaults with DatabasePath = uniqueDb; WritePolicy = writePolicy }
         startRelayWithConfig ct config
+
+    let startRelayWithLogger ct (logger: TextWriter) =
+        let uniqueDb = $"file:test{Guid.NewGuid():N}?mode=memory&cache=shared"
+        let config = { RelayConfig.defaults with DatabasePath = uniqueDb; LogLevel = LogLevel.Debug }
+        let env = buildContext config logger
+        let wsHandler = Monad.injectedWith env (webSocketHandler ())
+
+        let local = HttpBinding.createSimple HTTP "127.0.0.1" 0
+        let conf = { defaultConfig with cancellationToken = ct; bindings = [local] }
+        let listening, server = startWebServerAsync conf (path "/" >=> handShake wsHandler)
+
+        let startedData = listening |> Async.RunSynchronously
+        int startedData[0].Value.binding.port

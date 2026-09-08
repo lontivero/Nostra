@@ -25,15 +25,13 @@ open Suave.WebSocket
 [<TailCall>]
 let rec processRelayMessagesLoop
         (webSocket: WebSocket)
-        (cleanup: unit -> unit)
         (inbox: MailboxProcessor<RelayMessage>) = async {
     let! msg = inbox.Receive()
     try
         let send = webSocket.send Text (toPayload msg) true
         let! _ = send.AsTask() |> Async.AwaitTask
-        return! processRelayMessagesLoop webSocket cleanup inbox
-    with _ ->
-        cleanup ()
+        return! processRelayMessagesLoop webSocket inbox
+    with _ -> ()
 }
 
 let private processCompleteMessage
@@ -64,7 +62,6 @@ let rec processRequestLoop
         (webSocket: WebSocket)
         (env: Context)
         (send: RelayMessage -> unit)
-        (cleanup: unit -> unit)
         (processRequest: string -> Async<Result<RelayMessage list,EventProcessingError>>)
         (fragmentBuffer: ResizeArray<byte>) = socket {
     let! msg = webSocket.read()
@@ -73,45 +70,44 @@ let rec processRequestLoop
         // Complete message, no pending fragments
         let requestText = Encoding.UTF8.GetString(data.Span)
         do! processCompleteMessage env send processRequest requestText
-        return! processRequestLoop clientId webSocket env send cleanup processRequest fragmentBuffer
+        return! processRequestLoop clientId webSocket env send processRequest fragmentBuffer
     | Text, data, true ->
         // Final fragment - combine with buffer and process
         fragmentBuffer.AddRange(data.ToArray())
         let requestText = Encoding.UTF8.GetString(fragmentBuffer.ToArray())
         fragmentBuffer.Clear()
         do! processCompleteMessage env send processRequest requestText
-        return! processRequestLoop clientId webSocket env send cleanup processRequest fragmentBuffer
+        return! processRequestLoop clientId webSocket env send processRequest fragmentBuffer
     | Text, data, false ->
         // First fragment of a fragmented message
         fragmentBuffer.Clear()
         fragmentBuffer.AddRange(data.ToArray())
-        return! processRequestLoop clientId webSocket env send cleanup processRequest fragmentBuffer
+        return! processRequestLoop clientId webSocket env send processRequest fragmentBuffer
     | Continuation, data, false ->
         // Continuation fragment, not final
         fragmentBuffer.AddRange(data.ToArray())
-        return! processRequestLoop clientId webSocket env send cleanup processRequest fragmentBuffer
+        return! processRequestLoop clientId webSocket env send processRequest fragmentBuffer
     | Continuation, data, true ->
         // Final continuation fragment - combine and process
         fragmentBuffer.AddRange(data.ToArray())
         let requestText = Encoding.UTF8.GetString(fragmentBuffer.ToArray())
         fragmentBuffer.Clear()
         do! processCompleteMessage env send processRequest requestText
-        return! processRequestLoop clientId webSocket env send cleanup processRequest fragmentBuffer
+        return! processRequestLoop clientId webSocket env send processRequest fragmentBuffer
     | Close, _, _ ->
-        cleanup ()
         let emptyResponse = System.Memory<byte>.Empty
         do! webSocket.send Close emptyResponse true
     | Ping, data, _ ->
         do! webSocket.send Pong data true
-        return! processRequestLoop clientId webSocket env send cleanup processRequest fragmentBuffer
+        return! processRequestLoop clientId webSocket env send processRequest fragmentBuffer
     | Pong, _, _ ->
-        return! processRequestLoop clientId webSocket env send cleanup processRequest fragmentBuffer
+        return! processRequestLoop clientId webSocket env send processRequest fragmentBuffer
     | Binary, _, _ ->
         env.logger.logDebug "Ignoring binary WebSocket frame"
-        return! processRequestLoop clientId webSocket env send cleanup processRequest fragmentBuffer
+        return! processRequestLoop clientId webSocket env send processRequest fragmentBuffer
     | opcode, _, _ ->
         env.logger.logWarn $"Unexpected WebSocket opcode: {opcode}"
-        return! processRequestLoop clientId webSocket env send cleanup processRequest fragmentBuffer
+        return! processRequestLoop clientId webSocket env send processRequest fragmentBuffer
 }
 let webSocketHandler () =
     let handle (env : Context) (webSocket : WebSocket) (context: HttpContext) =
@@ -126,7 +122,7 @@ let webSocketHandler () =
             env.clientRegistry.unsubscribe clientId
 
         let worker =
-            MailboxProcessor<RelayMessage>.Start(processRelayMessagesLoop webSocket cleanup)
+            MailboxProcessor<RelayMessage>.Start(processRelayMessagesLoop webSocket)
 
         let send msg = worker.Post msg
 
@@ -142,7 +138,18 @@ let webSocketHandler () =
 
         env.clientRegistry.subscribe clientId notifyEvent
         let fragmentBuffer = ResizeArray<byte>()
-        processRequestLoop clientId webSocket env send cleanup processRequest fragmentBuffer
+        socket {
+            try
+                return! processRequestLoop clientId webSocket env send processRequest fragmentBuffer
+            finally
+                cleanup ()
+        }
+        |> SocketOp.bindError (function
+            | ConnectionError msg when msg.Contains("short read") ->
+                env.logger.logDebug $"WebSocket disconnected: {msg}"
+                SocketOp.mreturn ()
+            | error ->
+                SocketOp.abort error)
     Monad.Reader (fun (ctx : Context) -> handle ctx)
 
 open Suave.Operators
