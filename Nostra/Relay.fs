@@ -264,8 +264,10 @@ module Relay =
         type RelayInfo = {
             Name: string
             Description: string
+            Icon: string
             Pubkey: string
             Contact: string
+            ToS: string
             SupportedNips: int list
             Software: string
             Version: string
@@ -276,10 +278,12 @@ module Relay =
             let defaults = {
                 Name = ""
                 Description = "Nostr Relay"
+                Icon = ""
                 Pubkey = ""
+                ToS = ""
                 Contact = ""
                 SupportedNips = [1; 2; 4; 9; 11; 12; 16; 20; 33; 40; 45]
-                Software = "https://github.com/lontivero/Nostra/"
+                Software = "git+https://github.com/lontivero/Nostra.git"
                 Version = getAssemblyVersion ()
                 Limitation = Limitation.defaults
             }
@@ -290,8 +294,10 @@ module Relay =
                     {
                         Name = get.Optional.Field "name" Decode.string |> Option.defaultValue defaults.Name
                         Description = get.Optional.Field "description" Decode.string |> Option.defaultValue defaults.Description
+                        Icon = get.Optional.Field "icon" Decode.string |> Option.defaultValue defaults.Icon
                         Pubkey = get.Optional.Field "pubkey" Decode.string |> Option.defaultValue defaults.Pubkey
                         Contact = get.Optional.Field "contact" Decode.string |> Option.defaultValue defaults.Contact
+                        ToS = get.Optional.Field "terms_of_service" Decode.string |> Option.defaultValue defaults.ToS
                         SupportedNips = get.Optional.Field "supported_nips" (Decode.list Decode.int) |> Option.defaultValue defaults.SupportedNips
                         Software = get.Optional.Field "software" Decode.string |> Option.defaultValue defaults.Software
                         Version = getAssemblyVersion ()  // Always use assembly version, ignore config
@@ -304,6 +310,7 @@ module Relay =
                     "description", Encode.string info.Description
                     "pubkey", Encode.string info.Pubkey
                     "contact", Encode.string info.Contact
+                    "terms_of_service", Encode.string info.ToS
                     "supported_nips", Encode.list (List.map Encode.int info.SupportedNips)
                     "software", Encode.string info.Software
                     "version", Encode.string info.Version
