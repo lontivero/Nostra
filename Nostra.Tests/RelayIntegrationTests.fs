@@ -302,6 +302,31 @@ type ``Relay Nip45``(output:ITestOutputHelper) =
             let (_, count) = user.ReceivedCounts[0]
             should equal 0 count)
 
+type ``Relay WebSocket Disconnection``(output:ITestOutputHelper) =
+
+    [<Fact>]
+    let ``Abrupt disconnection logs at debug level`` () = async {
+        use cts = new System.Threading.CancellationTokenSource()
+        let logOutput = new StringWriter()
+        let port = Nostra.Tests.Relay.startRelayWithLogger cts.Token logOutput
+
+        // Connect a WebSocket client
+        let ws = new System.Net.WebSockets.ClientWebSocket()
+        do! ws.ConnectAsync(System.Uri $"ws://127.0.0.1:{port}/", cts.Token) |> Async.AwaitTask
+
+        // Abruptly close without proper WebSocket close handshake
+        ws.Abort()
+        ws.Dispose()
+
+        // Wait for the server to process the disconnection
+        do! Async.Sleep 100
+
+        // Verify the log contains the debug message about short read
+        let logs = logOutput.ToString()
+        logs |> should haveSubstring "WebSocket disconnected"
+        logs |> should haveSubstring "short read"
+    }
+
 type ``Relay WebSocket Fragmentation``(output:ITestOutputHelper) =
 
     [<Fact>]
