@@ -53,9 +53,10 @@ jobs:
             --output ./output
 
       - name: NuGet Login (Trusted Publishing)
+        id: nuget-login
         uses: nuget/login@v1
         with:
-          nuget-server: https://api.nuget.org/v3/index.json
+          user: ${{ vars.NUGET_USER }}
 
       - name: Push to NuGet
-        run: dotnet nuget push ./output/*.nupkg --skip-duplicate -s https://api.nuget.org/v3/index.json
+        run: dotnet nuget push ./output/*.nupkg --skip-duplicate --api-key "${{ steps.nuget-login.outputs.NUGET_API_KEY }}" -s https://api.nuget.org/v3/index.json

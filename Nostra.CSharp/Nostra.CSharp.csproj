@@ -11,6 +11,7 @@
 
     <ItemGroup>
         <None Include="../LICENSE" Pack="true" PackagePath="" />
+        <None Include="../Nostra/README.md" Pack="true" PackagePath="" />
     </ItemGroup>
 
     <PropertyGroup>
@@ -27,6 +28,7 @@
         <RepositoryType>git</RepositoryType>
         <RepositoryUrl>https://github.com/lontivero/nostra</RepositoryUrl>
         <PackageLicenseFile>LICENSE</PackageLicenseFile>
+        <PackageReadmeFile>README.md</PackageReadmeFile>
     </PropertyGroup>
 
 </Project>
