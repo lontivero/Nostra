@@ -1,0 +1,61 @@
+name: "Publish to NuGet"
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+jobs:
+  publish:
+    name: 'Build and Publish to NuGet.org'
+    runs-on: ubuntu-latest
+    permissions:
+      id-token: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+
+      - name: Extract version from tag
+        id: version
+        run: echo "VERSION=${GITHUB_REF#refs/tags/v}" >> $GITHUB_OUTPUT
+
+      - name: Restore packages
+        run: dotnet restore
+
+      - name: Build
+        run: dotnet build --no-restore --configuration Release
+
+      - name: Pack Nostra
+        run: |
+          dotnet pack Nostra/Nostra.fsproj \
+            --no-restore \
+            --no-build \
+            --configuration Release \
+            --include-symbols \
+            -p:SymbolPackageFormat=snupkg \
+            -p:PackageVersion=${{ steps.version.outputs.VERSION }} \
+            --output ./output
+
+      - name: Pack Nostra.CSharp
+        run: |
+          dotnet pack Nostra.CSharp/Nostra.CSharp.csproj \
+            --no-restore \
+            --no-build \
+            --configuration Release \
+            --include-symbols \
+            -p:SymbolPackageFormat=snupkg \
+            -p:PackageVersion=${{ steps.version.outputs.VERSION }} \
+            --output ./output
+
+      - name: NuGet Login (Trusted Publishing)
+        uses: nuget/login@v1
+        with:
+          nuget-server: https://api.nuget.org/v3/index.json
+
+      - name: Push to NuGet
+        run: dotnet nuget push ./output/*.nupkg --skip-duplicate -s https://api.nuget.org/v3/index.json
