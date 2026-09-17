@@ -1,4 +1,5 @@
 using Microsoft.FSharp.Collections;
+using Microsoft.FSharp.Control;
 using static Nostra.Client;
 using Response = Nostra.Client.Response;
 
@@ -255,6 +256,15 @@ public static class RelayClientExtensions
             }
         });
     }
+
+    /// <summary>
+    /// Disconnects from the relay.
+    /// </summary>
+    public static Task DisconnectAsync(this RelayClient relay, CancellationToken cancellationToken = default)
+    {
+        var asyncOp = relay.disconnect.Invoke(cancellationToken);
+        return FSharpAsync.StartAsTask(asyncOp, null, null);
+    }
 }
 
 #endregion
@@ -311,6 +321,182 @@ public static class Shareable
     {
         var relayList = (relays ?? []).ToFSharpList();
         return ShareableModule.ToNProfile(author, relayList);
+    }
+
+    /// <summary>
+    /// Encodes a relay URL as a shareable nrelay bech32 string.
+    /// </summary>
+    public static string ToNRelay(string relayUrl)
+        => ShareableModule.ToNRelay(relayUrl);
+
+    /// <summary>
+    /// Decodes an npub bech32 string to a public key.
+    /// </summary>
+    public static AuthorIdT? FromNPub(string npub)
+    {
+        var result = ShareableModule.decodeNpub(npub);
+        return FSharpOption<AuthorIdT>.get_IsSome(result) ? result.Value : null;
+    }
+
+    /// <summary>
+    /// Tries to decode an npub bech32 string to a public key.
+    /// </summary>
+    public static bool TryFromNPub(string npub, out AuthorIdT? author)
+    {
+        var result = ShareableModule.decodeNpub(npub);
+        if (FSharpOption<AuthorIdT>.get_IsSome(result))
+        {
+            author = result.Value;
+            return true;
+        }
+        author = null;
+        return false;
+    }
+
+    /// <summary>
+    /// Decodes an nsec bech32 string to a secret key.
+    /// </summary>
+    public static SecretKeyT? FromNSec(string nsec)
+    {
+        var result = ShareableModule.decodeNsec(nsec);
+        return FSharpOption<SecretKeyT>.get_IsSome(result) ? result.Value : null;
+    }
+
+    /// <summary>
+    /// Tries to decode an nsec bech32 string to a secret key.
+    /// </summary>
+    public static bool TryFromNSec(string nsec, out SecretKeyT? secret)
+    {
+        var result = ShareableModule.decodeNsec(nsec);
+        if (FSharpOption<SecretKeyT>.get_IsSome(result))
+        {
+            secret = result.Value;
+            return true;
+        }
+        secret = null;
+        return false;
+    }
+
+    /// <summary>
+    /// Decodes a note bech32 string to an event ID.
+    /// </summary>
+    public static EventIdT? FromNote(string note)
+    {
+        var result = ShareableModule.decodeNote(note);
+        return FSharpOption<EventIdT>.get_IsSome(result) ? result.Value : null;
+    }
+
+    /// <summary>
+    /// Tries to decode a note bech32 string to an event ID.
+    /// </summary>
+    public static bool TryFromNote(string note, out EventIdT? eventId)
+    {
+        var result = ShareableModule.decodeNote(note);
+        if (FSharpOption<EventIdT>.get_IsSome(result))
+        {
+            eventId = result.Value;
+            return true;
+        }
+        eventId = null;
+        return false;
+    }
+
+    /// <summary>
+    /// Decodes an nprofile bech32 string to an author and relays.
+    /// </summary>
+    public static (AuthorIdT Author, string[] Relays)? FromNProfile(string nprofile)
+    {
+        var result = ShareableModule.decodeNprofile(nprofile);
+        if (FSharpOption<Tuple<AuthorIdT, FSharpList<string>>>.get_IsSome(result))
+        {
+            var (author, relays) = result.Value;
+            return (author, [.. relays]);
+        }
+        return null;
+    }
+
+    /// <summary>
+    /// Tries to decode an nprofile bech32 string to an author and relays.
+    /// </summary>
+    public static bool TryFromNProfile(string nprofile, out AuthorIdT? author, out string[]? relays)
+    {
+        var result = ShareableModule.decodeNprofile(nprofile);
+        if (FSharpOption<Tuple<AuthorIdT, FSharpList<string>>>.get_IsSome(result))
+        {
+            var (a, r) = result.Value;
+            author = a;
+            relays = [.. r];
+            return true;
+        }
+        author = null;
+        relays = null;
+        return false;
+    }
+
+    /// <summary>
+    /// Decodes an nevent bech32 string to an event ID, relays, optional author, and optional kind.
+    /// </summary>
+    public static (EventIdT EventId, string[] Relays, AuthorIdT? Author, Kind? Kind)? FromNEvent(string nevent)
+    {
+        var result = ShareableModule.decodeNevent(nevent);
+        if (FSharpOption<Tuple<EventIdT, FSharpList<string>, FSharpOption<AuthorIdT>, FSharpOption<Kind>>>.get_IsSome(result))
+        {
+            var (eventId, relays, authorOpt, kindOpt) = result.Value;
+            return (
+                eventId,
+                [.. relays],
+                FSharpOption<AuthorIdT>.get_IsSome(authorOpt) ? authorOpt.Value : null,
+                FSharpOption<Kind>.get_IsSome(kindOpt) ? kindOpt.Value : null
+            );
+        }
+        return null;
+    }
+
+    /// <summary>
+    /// Tries to decode an nevent bech32 string.
+    /// </summary>
+    public static bool TryFromNEvent(string nevent, out EventIdT? eventId, out string[]? relays,
+        out AuthorIdT? author, out Kind? kind)
+    {
+        var result = ShareableModule.decodeNevent(nevent);
+        if (FSharpOption<Tuple<EventIdT, FSharpList<string>, FSharpOption<AuthorIdT>, FSharpOption<Kind>>>.get_IsSome(result))
+        {
+            var (e, r, a, k) = result.Value;
+            eventId = e;
+            relays = [.. r];
+            author = FSharpOption<AuthorIdT>.get_IsSome(a) ? a.Value : null;
+            kind = FSharpOption<Kind>.get_IsSome(k) ? k.Value : null;
+            return true;
+        }
+        eventId = null;
+        relays = null;
+        author = null;
+        kind = null;
+        return false;
+    }
+
+    /// <summary>
+    /// Decodes an nrelay bech32 string to a relay URL.
+    /// </summary>
+    public static string? FromNRelay(string nrelay)
+    {
+        var result = ShareableModule.decodeNrelay(nrelay);
+        return FSharpOption<string>.get_IsSome(result) ? result.Value : null;
+    }
+
+    /// <summary>
+    /// Tries to decode an nrelay bech32 string to a relay URL.
+    /// </summary>
+    public static bool TryFromNRelay(string nrelay, out string? relayUrl)
+    {
+        var result = ShareableModule.decodeNrelay(nrelay);
+        if (FSharpOption<string>.get_IsSome(result))
+        {
+            relayUrl = result.Value;
+            return true;
+        }
+        relayUrl = null;
+        return false;
     }
 }
 
