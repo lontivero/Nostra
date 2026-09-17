@@ -34,7 +34,7 @@ let displayResponse (contacts : Map<byte[], Contact>) (addContact: ContactKey ->
                     let eventId =
                             event.Tags
                             |> List.choose (function
-                                | "e", [channel; _; "root"] -> Some (EventId.parse channel)
+                                | Tag ("e", [channel; _; "root"]) -> Some (EventId.parse channel)
                                 | _ -> None)
                             |> List.head
                             |> Result.requiresOk

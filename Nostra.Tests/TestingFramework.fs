@@ -212,13 +212,13 @@ let replaceableNote content : EventFactory =
     fun ctx -> Event.create Kind.ReplaceableStart [] content
 
 let parameterizedNote content dtag : EventFactory =
-    fun ctx -> Event.create Kind.ParameterizableReplaceableStart [("d", [dtag])] content
+    fun ctx -> Event.create Kind.ParameterizableReplaceableStart [Tag ("d", [dtag])] content
 
 let ephemeralNote content : EventFactory =
     fun ctx -> Event.create Kind.EphemeralStart [] content
 
 let expirableNote content expirationDate : EventFactory =
-    fun ctx -> Event.create Kind.Text [("expiration", [string expirationDate])] content
+    fun ctx -> Event.create Kind.Text [Tag ("expiration", [string expirationDate])] content
 
 let deleteNote evnts : EventFactory =
     fun ctx ->

@@ -1,15 +1,15 @@
 namespace Nostra
 
 [<CompiledName("TagT")>]
-type Tag = string * (string list)
+type Tag = Tag of string * string list
 type SingleTag = string * string
 
 [<RequireQualifiedAccess>]
 module Tag =
     open Utils
 
-    let ungroup (tags: Tag list) : SingleTag list = tags |> List.ungroup |> List.distinct
-    let group (tags: SingleTag list) : Tag list = tags |> List.groupBy fst |> List.map (fun (k,vs) -> k, vs |> List.map snd)
+    let ungroup (tags: Tag list) : SingleTag list = tags |> List.map (fun (Tag (key, values)) -> (key, values) ) |> List.ungroup |> List.distinct
+    let group (tags: SingleTag list) : Tag list = tags |> List.groupBy fst |> List.map (fun (k,vs) -> Tag (k, vs |> List.map snd))
     let normalize (tags: Tag list) = tags |> ungroup |> group
 
     let findByKey key (tags : Tag list) =
@@ -56,8 +56,7 @@ module Tag =
             Decode.list tag
 
     module Encode =
-        let tag (tag: Tag) =
-            let key, values = tag
+        let tag (Tag (key, values)) =
             Encode.list ([ Encode.string key ] @ (values |> List.map Encode.string))
 
         let tagList (tags : Tag list) =

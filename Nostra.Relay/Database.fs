@@ -266,7 +266,7 @@ let buildQueryForFilter (now : DateTime) (filter: Request.Filter) =
                 In (Column ("e", "id"), SelectList select))
 
         filter.Tags
-        |> List.map (fun (tag, values) -> tagCondition tag[1..] values)
+        |> List.map (fun (Tag (tag, values)) -> tagCondition tag[1..] values)
 
     let conditions =
         ([notHidden; notExpired; authCondition; kindCondition "e"; idCondition; sinceCondition "e"; untilCondition "e"] @ tagsCondition)

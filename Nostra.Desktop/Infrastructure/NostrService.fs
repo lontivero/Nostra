@@ -47,21 +47,21 @@ module NostrService =
         // where marker can be "root", "reply", or empty
         // With markers: look for "reply" marker for direct parent
         // Without markers (deprecated): first = root, last = reply-to
-        let eTags = tags |> List.filter (fun (key, _) -> key = "e")
+        let eTags = tags |> List.filter (fun (Tag (key, _)) -> key = "e")
 
         // First, look for a tag with "reply" marker
         let replyTag =
             eTags
-            |> List.tryFind (fun (_, values) ->
+            |> List.tryFind (fun (Tag (_, values)) ->
                 values |> List.exists (fun v -> v = "reply"))
 
         let eventIdHex =
             match replyTag with
-            | Some (_, eventId :: _) -> Some eventId
-            | Some (_, []) | None ->
+            | Some (Tag (_, eventId :: _)) -> Some eventId
+            | Some (Tag (_, [])) | None ->
                 // Fallback: use the last "e" tag (deprecated format where last = reply-to)
                 match eTags |> List.tryLast with
-                | Some (_, eventId :: _) -> Some eventId
+                | Some (Tag(_, eventId :: _)) -> Some eventId
                 | _ -> None
 
         eventIdHex
@@ -73,7 +73,7 @@ module NostrService =
     /// Extract contacts (followed authors) from a Kind 3 event
     let private extractContacts (tags: Tag list) : AuthorId list =
         tags
-        |> List.choose (fun (key, values) ->
+        |> List.choose (fun (Tag (key, values)) ->
             if key = "p" then
                 match values with
                 | pubkeyHex :: _ ->
@@ -86,7 +86,7 @@ module NostrService =
     /// Extract relay URLs from a Kind 10002 event
     let private extractRelayList (tags: Tag list) : string list =
         tags
-        |> List.choose (fun (key, values) ->
+        |> List.choose (fun (Tag (key, values)) ->
             if key = "r" then
                 match values with
                 | relayUrl :: _ -> Some relayUrl

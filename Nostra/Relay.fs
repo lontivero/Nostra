@@ -56,7 +56,7 @@ module Relay =
                                     | Ok acc ->
                                         match Decode.Helpers.getField prop value |> (Decode.list Decode.string) path with
                                         | Error er -> Error er
-                                        | Ok value -> (prop, value)::acc |> Ok)
+                                        | Ok value -> Tag (prop, value)::acc |> Ok)
                                 |> Result.map List.rev
                             | Error e -> Error e
 
