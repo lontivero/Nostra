@@ -47,7 +47,11 @@ module Client =
         let send (msg: string) =
             let payload = msg |> Encoding.UTF8.GetBytes
             ctx.WebSocket.write payload
-        let receive = Communication.receiveMessage |> injectedWith ctx
+        let receiveRaw = Communication.receiveMessage |> injectedWith ctx
+        let receive = async {
+            let! result = receiveRaw
+            return result |> Option.defaultValue (Result.Error "WebSocket closed")
+        }
         async {
             let! ct = Async.CancellationToken
             do! ws.ConnectAsync (Uri $"ws://127.0.0.1:{port}/", ct) |> Async.AwaitTask
@@ -89,7 +93,11 @@ module Client =
                 }
                 do! sendMore rest
         }
-        let receive = Communication.receiveMessage |> injectedWith ctx
+        let receiveRaw = Communication.receiveMessage |> injectedWith ctx
+        let receive = async {
+            let! result = receiveRaw
+            return result |> Option.defaultValue (Result.Error "WebSocket closed")
+        }
         async {
             let! ct = Async.CancellationToken
             do! ws.ConnectAsync (Uri $"ws://127.0.0.1:{port}/", ct) |> Async.AwaitTask

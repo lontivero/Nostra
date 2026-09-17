@@ -98,7 +98,9 @@ module ClientContext =
     type Writer<'a> = 'a -> unit
     type AsyncWriter<'a> = 'a -> Async<unit>
 
-    type WebSocketResult = { Count: int; EndOfMessage: bool }
+    type WebSocketMessageKind = Text | Binary | Close
+
+    type WebSocketResult = { Count: int; EndOfMessage: bool; MessageKind: WebSocketMessageKind }
 
     type IOWebSocket =
         { read: AsyncReader<WebSocketResult>

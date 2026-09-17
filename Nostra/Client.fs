@@ -184,12 +184,17 @@ module Client =
         let rec _readMessage (ctx: Context) (mem:MemoryStream) = async {
             let buffer = ArrayPool.Shared.Rent(1024)
             let! result = ctx.WebSocket.read buffer
-            mem.Write (buffer, 0, result.Count)
-            ArrayPool.Shared.Return buffer
-            if result.EndOfMessage then
-                return mem.ToArray()
-            else
-                return! _readMessage ctx mem
+            match result.MessageKind with
+            | WebSocketMessageKind.Close ->
+                ArrayPool.Shared.Return buffer
+                return None
+            | _ ->
+                mem.Write (buffer, 0, result.Count)
+                ArrayPool.Shared.Return buffer
+                if result.EndOfMessage then
+                    return Some (mem.ToArray())
+                else
+                    return! _readMessage ctx mem
         }
         let readWebSocketMessage (ctx: Context) =
             _readMessage ctx (new MemoryStream (4 * 1024))
@@ -198,25 +203,30 @@ module Client =
             Monad.Reader (fun (ctx: Context) -> async {
                 let! payload = (readWebSocketMessage ctx)
                 return payload
-                |> Encoding.UTF8.GetString
-                |> deserialize
-                |> Result.bind (fun relayMsg ->
-                   match relayMsg with
-                   | RMEvent (subscriptionId, event) ->
-                        if (Event.verify event) then
-                            Ok relayMsg
-                        else
-                            Error "Invalid message received"
-                   | _ -> Ok relayMsg )
+                |> Option.map (fun p ->
+                    p
+                    |> Encoding.UTF8.GetString
+                    |> deserialize
+                    |> Result.bind (fun relayMsg ->
+                       match relayMsg with
+                       | RMEvent (subscriptionId, event) ->
+                            if (Event.verify event) then
+                                Ok relayMsg
+                            else
+                                Error "Invalid message received"
+                       | _ -> Ok relayMsg ))
             })
 
         [<TailCall>]
         let rec startReceiving callback =
             let rec loop (ctx: Context) = async {
-                let (Monad.Reader r ) = receiveMessage
+                let (Monad.Reader r) = receiveMessage
                 let! message = r ctx
-                callback message
-                return! loop ctx
+                match message with
+                | Some msg ->
+                    callback msg
+                    return! loop ctx
+                | None -> ()
             }
             Monad.Reader (fun (ctx: Context) -> loop ctx)
 
@@ -247,7 +257,12 @@ module Client =
                         fun buffer -> async {
                             let! ct = Async.CancellationToken
                             let! result = ws.ReceiveAsync(ArraySegment(buffer), ct) |> Async.AwaitTask
-                            return { Count = result.Count; EndOfMessage = result.EndOfMessage }
+                            let messageKind =
+                                match result.MessageType with
+                                | WebSocketMessageType.Close -> WebSocketMessageKind.Close
+                                | WebSocketMessageType.Binary -> WebSocketMessageKind.Binary
+                                | _ -> WebSocketMessageKind.Text
+                            return { Count = result.Count; EndOfMessage = result.EndOfMessage; MessageKind = messageKind }
                         }
                 }
                 Logger = {
