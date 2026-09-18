@@ -18,6 +18,16 @@ module SecretKey =
         |> Seq.head
         |> SecretKey
 
+    [<CompiledName("FromBytes")>]
+    let fromBytes (bytes: byte[]) =
+        match ECPrivKey.TryCreate(ReadOnlySpan(bytes)) with
+        | true, key -> Some (SecretKey key)
+        | _ -> None
+
+    [<CompiledName("FromHex")>]
+    let fromHex (hex: string) =
+        Utils.fromHex hex |> fromBytes
+
     let getPubKey (SecretKey secret) = secret.CreateXOnlyPubKey() |> AuthorId
 
     let sign content (SecretKey secret) = secret.SignBIP340 content

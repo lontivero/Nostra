@@ -92,22 +92,22 @@ type ``Single Filters``(output:ITestOutputHelper) =
     let ``Query Since`` () =
         let filter = createFilter "{ \"since\" : 12345678 }"
         let query, parameters  = materializeSingleQuery (Database.buildQueryForFilter now filter)
-        should equal "SELECT e.serialized_event, e.created_at, e.id FROM events e WHERE e.deleted = @s0_e_deleted_eq AND e.expires_at > @s0_e_expires_at_gt AND e.created_at > @s0_e_created_at_gt ORDER BY e.created_at DESC, e.id DESC LIMIT 50" query
+        should equal "SELECT e.serialized_event, e.created_at, e.id FROM events e WHERE e.deleted = @s0_e_deleted_eq AND e.expires_at > @s0_e_expires_at_gt AND e.created_at >= @s0_e_created_at_gte ORDER BY e.created_at DESC, e.id DESC LIMIT 50" query
         should equal [
            "@s0_e_deleted_eq", false :> obj
            "@s0_e_expires_at_gt", now :> obj
-           "@s0_e_created_at_gt", 12345678
+           "@s0_e_created_at_gte", Utils.fromUnixTime 12345678 :> obj
         ] (parameters |> List.map (fun (k, v) -> k, v.Value ))
 
     [<Fact>]
     let ``Query Until`` () =
         let filter = createFilter "{ \"until\" : 12345678 }"
         let query, parameters  = materializeSingleQuery (Database.buildQueryForFilter now filter)
-        should equal "SELECT e.serialized_event, e.created_at, e.id FROM events e WHERE e.deleted = @s0_e_deleted_eq AND e.expires_at > @s0_e_expires_at_gt AND e.created_at < @s0_e_created_at_lt ORDER BY e.created_at DESC, e.id DESC LIMIT 50" query
+        should equal "SELECT e.serialized_event, e.created_at, e.id FROM events e WHERE e.deleted = @s0_e_deleted_eq AND e.expires_at > @s0_e_expires_at_gt AND e.created_at <= @s0_e_created_at_lte ORDER BY e.created_at DESC, e.id DESC LIMIT 50" query
         should equal [
            "@s0_e_deleted_eq", false :> obj
            "@s0_e_expires_at_gt", now :> obj
-           "@s0_e_created_at_lt", 12345678
+           "@s0_e_created_at_lte", Utils.fromUnixTime 12345678 :> obj
         ] (parameters |> List.map (fun (k, v) -> k, v.Value ))
 
     [<Fact>]

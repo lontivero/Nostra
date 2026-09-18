@@ -64,10 +64,29 @@ let checkWritePolicy (event: Event) (pluginManager: PluginManager) (timeoutSecon
         logger.logError $"{msg}"
         false
 
+let isCreatedAtWithinLimits (event: Event) (limits: Limitation) =
+    let now = DateTime.UtcNow
+    let eventTimestamp = event.CreatedAt
+    let lowerOk =
+        match limits.CreatedAtLowerLimit with
+        | Some seconds ->
+            let lowerBound = now.AddSeconds(float -seconds)
+            eventTimestamp >= lowerBound
+        | None -> true
+    let upperOk =
+        match limits.CreatedAtUpperLimit with
+        | Some seconds ->
+            let upperBound = now.AddSeconds(float seconds)
+            eventTimestamp <= upperBound
+        | None -> true
+    lowerOk && upperOk
+
 let canPersistEvent (event : Event) (limits : Limitation) (pluginManager: PluginManager) (timeoutSeconds: int) (sourceInfo: string) (logger : IOLogger) : Result<unit, ValidationFailure> = result {
     do! Result.requireTrue (ackError event.Id $"too many tags ({event.Tags.Length} > {limits.MaxEventTags})" "invalid: too many tags") (event.Tags.Length <= limits.MaxEventTags)
     do! Result.requireTrue (ackError event.Id $"content too large ({event.Content.Length} > {limits.MaxContentLength})" "invalid: content too large") (event.Content.Length <= limits.MaxContentLength)
     do! Result.requireTrue (ackError event.Id "invalid signature" "invalid: the signature is incorrect") (Event.verify event)
+    do! Result.requireTrue (ackError event.Id "event already expired" "invalid: event is expired") (not (Event.isExpired event DateTime.UtcNow))
+    do! Result.requireTrue (ackError event.Id "created_at out of range" "invalid: created_at timestamp is out of the accepted range") (isCreatedAtWithinLimits event limits)
     do! Result.requireTrue (ackError event.Id "blocked by write policy" "event cannot be accepted") (checkWritePolicy event pluginManager timeoutSeconds sourceInfo logger)
     }
 
@@ -107,9 +126,17 @@ let processRequest (env : Context) (clientId : ClientId) (subscriptionStore : Su
         let serializedEvent = requestText[(requestText.IndexOf "{")..(requestText.LastIndexOf "}")]
 
         let preprocessedEvent = preprocessEvent event serializedEvent
-        do! storeEvent env.eventStore.saveEvent env.eventStore.deleteEvents preprocessedEvent
-        env.clientRegistry.notifyEvent preprocessedEvent
-        return! Ok [ RMAck (event.Id, true, "added") ]
+        let! storeResult =
+            storeEvent env.eventStore.saveEvent env.eventStore.deleteEvents env.eventStore.hasDeletableEvents preprocessedEvent
+            |> AsyncResult.mapError (fun err ->
+                env.logger.logError $"[{clientIdStr}] Storage error: {err}"
+                UnexpectedError err)
+        match storeResult with
+        | EventStore.Stored ->
+            env.clientRegistry.notifyEvent preprocessedEvent
+            return! Ok [ RMAck (event.Id, true, "added") ]
+        | EventStore.DeletionHasNoEffect ->
+            return! Ok [ RMAck (event.Id, false, "no events to delete") ]
 
     | CMSubscribe(subscriptionId, filters) ->
         do! verifyCanSubscribe subscriptionId filters subscriptionStore limits

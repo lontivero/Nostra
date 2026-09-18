@@ -34,7 +34,7 @@ module Utils =
     let toUnixTime date =
         date - DateTime.UnixEpoch |> (fun t -> t.TotalSeconds) |> uint32
 
-    let fromUnixTime (unixDateTime : int) =
+    let fromUnixTime (unixDateTime : int64) =
         (int64 unixDateTime * TimeSpan.TicksPerSecond + DateTime.UnixEpoch.Ticks |> DateTime)
 
     let toBE (v : int) =

@@ -1,4 +1,4 @@
-namespace Nostra.Tests
+namespace Nostra.Relay.Tests
 
 open System
 open System.IO
@@ -9,31 +9,6 @@ open Suave.WebSocket
 open Suave.Operators
 open Suave.Sockets.Control
 
-module EchoServer =
-    let startEchoServer ct =
-        let local = HttpBinding.createSimple HTTP "127.0.0.1" 0
-
-        let conf = { defaultConfig with cancellationToken = ct; bindings = [local] }
-        let listening, server = startWebServerAsync conf (
-            path "/" >=> handShake (
-                fun (ws: WebSocket) (context: HttpContext) ->
-                    let rec loop () = socket {
-                        let! msg = ws.read()
-                        match msg with
-                        | Text, data, true ->
-                            do! ws.send Text data true
-                            return! loop ()
-                        | Close, _, _ ->
-                            let emptyResponse = Memory<byte>.Empty
-                            do! ws.send Close emptyResponse true
-                        | _ ->
-                            return! loop ()
-                    }
-                    loop ()
-                )
-        )
-        let startedData = listening |> Async.RunSynchronously
-        int startedData[0].Value.binding.port
 
 module Client =
     open System.Net.WebSockets

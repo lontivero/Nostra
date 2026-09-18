@@ -4,7 +4,7 @@ open System
 open System.Threading
 open Nostra
 open Nostra.Client.Response
-open Nostra.Tests
+open Nostra.Relay.Tests
 open Xunit
 open FsUnit.Xunit
 open Xunit.Abstractions

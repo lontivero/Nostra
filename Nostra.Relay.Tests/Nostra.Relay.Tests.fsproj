@@ -3,20 +3,8 @@
     <PropertyGroup>
         <OutputType>Library</OutputType>
         <IsPackable>false</IsPackable>
-        <RootNamespace>Nostra.Lib.Tests</RootNamespace>
+        <RootNamespace>Nostra.Relay.Tests</RootNamespace>
     </PropertyGroup>
-
-    <ItemGroup>
-        <Compile Include="EchoServer.fs" />
-        <Compile Include="ClientTests.fs" />
-        <Compile Include="Bech32Tests.fs" />
-        <Compile Include="PayloadEncryptionTests.fs" />
-        <Compile Include="QueryBuildingTests.fs" />
-        <Compile Include="ContentTests.fs" />
-        <Content Include="TestData\nip44.vectors.json">
-          <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
-        </Content>
-    </ItemGroup>
 
     <ItemGroup>
         <PackageReference Include="FSharp.Core" />
@@ -37,6 +25,20 @@
     <ItemGroup>
       <ProjectReference Include="..\Nostra.Relay\Nostra.Relay.fsproj" />
       <ProjectReference Include="..\Nostra\Nostra.fsproj" />
+    </ItemGroup>
+
+    <ItemGroup>
+      <Compile Include="ClientServer.fs" />
+      <Compile Include="TestingFramework.fs" />
+      <Compile Include="Nip01Tests.fs" />
+      <Compile Include="Nip09Tests.fs" />
+      <Compile Include="Nip11Tests.fs" />
+      <Compile Include="Nip16Tests.fs" />
+      <Compile Include="Nip33Tests.fs" />
+      <Compile Include="Nip40Tests.fs" />
+      <Compile Include="Nip45Tests.fs" />
+      <Compile Include="Nip119Tests.fs" />
+      <Compile Include="RelaySimpleTests.fs" />
     </ItemGroup>
 
 </Project>

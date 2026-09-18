@@ -3,6 +3,9 @@
      <TargetFramework>net10.0</TargetFramework>
      <GenerateDocumentationFile>false</GenerateDocumentationFile>
      <Deterministic>true</Deterministic>
+     <LangVersion>latest</LangVersion>
+     <ImplicitUsings>enable</ImplicitUsings>
+     <Nullable>enable</Nullable>
  </PropertyGroup>
  <ItemGroup>
      <!-- Override vulnerable transitive dependency from Fumble -->

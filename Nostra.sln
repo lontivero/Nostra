@@ -12,6 +12,8 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Nostra.CSharp", "Nostra.CSh
 EndProject
 Project("{F2A71F9B-5D33-465A-A702-920D77279786}") = "Nostra.Desktop", "Nostra.Desktop\Nostra.Desktop.fsproj", "{908AE0D0-202E-427D-B868-BD841B258F34}"
 EndProject
+Project("{F2A71F9B-5D33-465A-A702-920D77279786}") = "Nostra.Relay.Tests", "Nostra.Relay.Tests\Nostra.Relay.Tests.fsproj", "{E4EE6A53-E14D-4C4F-AB81-78433B8319BC}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -42,5 +44,9 @@ Global
 		{908AE0D0-202E-427D-B868-BD841B258F34}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{908AE0D0-202E-427D-B868-BD841B258F34}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{908AE0D0-202E-427D-B868-BD841B258F34}.Release|Any CPU.Build.0 = Release|Any CPU
+		{E4EE6A53-E14D-4C4F-AB81-78433B8319BC}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{E4EE6A53-E14D-4C4F-AB81-78433B8319BC}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{E4EE6A53-E14D-4C4F-AB81-78433B8319BC}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{E4EE6A53-E14D-4C4F-AB81-78433B8319BC}.Release|Any CPU.Build.0 = Release|Any CPU
 	EndGlobalSection
 EndGlobal
