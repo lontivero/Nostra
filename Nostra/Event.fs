@@ -199,7 +199,7 @@ module Event =
         event.Tags
         |> Tag.findByKey "expiration"
         |> List.tryHead
-        |> Option.bind (Int32.TryParse >> Option.ofTuple)
+        |> Option.bind (Int64.TryParse >> Option.ofTuple)
 
     let isExpired (event: Event) (datetime: DateTime) =
         event

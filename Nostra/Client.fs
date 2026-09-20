@@ -17,6 +17,7 @@ module Client =
         { Ids: EventId list
           Kinds: Kind list
           Authors: AuthorId list
+          Tags: Tag list
           Limit: int option
           Since: DateTime option
           Until: DateTime option
@@ -45,6 +46,9 @@ module Client =
                     |> encodeList "authors" filter.Authors Encode.authorId
                     |> encodeList "#e" filter.Events Encode.eventId
                     |> encodeList "#p" filter.PubKeys Encode.authorId
+                    |> fun map -> filter.Tags
+                                  |> List.fold (fun m (Tag(name, values)) ->
+                                      ("#" + name, Encode.list (List.map Encode.string values)) :: m) map
                     |> encodeOption "limit" filter.Limit Encode.int
                     |> encodeOption "since" filter.Since Encode.unixDateTime
                     |> encodeOption "until" filter.Until Encode.unixDateTime
@@ -54,18 +58,21 @@ module Client =
                 { Ids = []
                   Kinds = []
                   Authors = []
+                  Tags = []
                   Limit = None
                   Since = None
                   Until = None
                   Events = []
                   PubKeys = [] }
 
-            let notes filter = { filter with Kinds = [Kind.Text] }
-            let metadata filter = { filter with Kinds = [Kind.Metadata] }
-            let contacts filter = { filter with Kinds = [Kind.Contacts] }
-            let relayList filter = { filter with Kinds = [Kind.RelayList] }
-            let encryptedMessages filter = { filter with Kinds = [Kind.Encrypted] }
+            let kinds kinds filter = { filter with Kinds = kinds }
+            let notes = kinds [Kind.Text]
+            let metadata = kinds [Kind.Metadata]
+            let contacts = kinds [Kind.Contacts]
+            let relayList = kinds [Kind.RelayList]
+            let encryptedMessages = kinds [Kind.Encrypted]
             let channelCreation channels filter = { filter with Ids = channels }
+            let tags tags (filter: SubscriptionFilter) = { filter with Tags = filter.Tags @ tags}
 
             let events evnts filter =
                 { filter with

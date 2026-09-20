@@ -191,6 +191,7 @@ let buildContext (config: RelayConfig) (logger: TextWriter) =
         eventStore = {
             saveEvent = Database.saveEvent connectionFactory
             deleteEvents = Database.deleteEvents connectionFactory
+            hasDeletableEvents = Database.hasDeletableEvents connectionFactory
             fetchEvents = Database.fetchEvents connectionFactory limits.DefaultLimit limits.MaxLimit
             countEvents = Database.countEvents connectionFactory limits.DefaultLimit limits.MaxLimit
         }

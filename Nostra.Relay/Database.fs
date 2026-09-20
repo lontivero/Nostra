@@ -191,6 +191,39 @@ let saveEvent connectionFactory (preprocessedEvent: StoredEvent) =
             return! save connection eventId author preprocessedEvent |> AsyncResult.ignore
     })
 
+// Returns false only when ALL referenced events exist AND ALL are kind 5 (undeletable)
+// Returns true for: unknown events, deletable events, or mix thereof
+let hasDeletableEvents connectionFactory (AuthorId author) eventIds =
+    if List.isEmpty eventIds then
+        async { return Ok false }
+    else
+        executeWithConnection connectionFactory (fun connection -> asyncResult {
+            let eventIdsParameters = String.Join(",", eventIds |> List.mapi (fun i _ -> $"@event_hash{i}"))
+            let parameters =
+                [ "@author", Sql.bytes (author.ToBytes()) ]
+                @ (eventIds |> List.mapi (fun i eventId -> $"@event_hash{i}", Sql.bytes (Utils.fromHex eventId)))
+
+            // Count total matching events (any kind, same author)
+            let! totalMatching =
+                connection
+                |> Sql.query $"SELECT COUNT(*) as cnt FROM events WHERE author = @author AND event_hash IN ({eventIdsParameters})"
+                |> Sql.parameters parameters
+                |> Sql.executeAsync (fun read -> read.int "cnt")
+                |> AsyncResult.map (List.tryHead >> Option.defaultValue 0)
+
+            // Count kind 5 events (undeletable)
+            let! kind5Count =
+                connection
+                |> Sql.query $"SELECT COUNT(*) as cnt FROM events WHERE kind = 5 AND author = @author AND event_hash IN ({eventIdsParameters})"
+                |> Sql.parameters parameters
+                |> Sql.executeAsync (fun read -> read.int "cnt")
+                |> AsyncResult.map (List.tryHead >> Option.defaultValue 0)
+
+            // Reject only if ALL referenced events exist AND ALL are kind 5
+            let requestedCount = List.length eventIds
+            return not (totalMatching = requestedCount && kind5Count = requestedCount && requestedCount > 0)
+        })
+
 let deleteEvents connectionFactory (AuthorId author) eventIds =
     executeWithConnection connectionFactory (fun connection ->
         let eventIdsParameters = String.Join(",", eventIds |> List.mapi (fun i _ -> $"@event_hash{i}"))
@@ -214,7 +247,9 @@ and MultiValue =
 and Expression =
     | EqualTo of Column * SqliteParameter
     | GreaterThan of Column * SqliteParameter
+    | GreaterThanOrEqual of Column * SqliteParameter
     | LessThan of Column * SqliteParameter
+    | LessThanOrEqual of Column * SqliteParameter
     | In of Column * MultiValue
     | And of Expression * Expression
 
@@ -247,13 +282,11 @@ let buildQueryForFilter (now : DateTime) (filter: Request.Filter) =
 
     let sinceCondition table =
         filter.Since
-        |> Option.map Utils.toUnixTime
-        |> Option.map (fun since -> GreaterThan (Column (table, "created_at"), Sql.int (int since)))
+        |> Option.map (fun since -> GreaterThanOrEqual (Column (table, "created_at"), Sql.dateTime since))
 
     let untilCondition table =
         filter.Until
-        |> Option.map Utils.toUnixTime
-        |> Option.map (fun until -> LessThan (Column (table, "created_at"), Sql.int (int until)))
+        |> Option.map (fun until -> LessThanOrEqual (Column (table, "created_at"), Sql.dateTime until))
 
     let tagsCondition =
         let tagCondition tag values =
@@ -287,9 +320,15 @@ let rec materializeExpression defaultLimit maxLimit expression scope =
     | GreaterThan (column, value) ->
         let pn = paramName column "_gt"
         $"{columnName column} > {pn}", [pn, value], scope
+    | GreaterThanOrEqual (column, value) ->
+        let pn = paramName column "_gte"
+        $"{columnName column} >= {pn}", [pn, value], scope
     | LessThan (column, value) ->
         let pn = paramName column "_lt"
         $"{columnName column} < {pn}", [pn, value], scope
+    | LessThanOrEqual (column, value) ->
+        let pn = paramName column "_lte"
+        $"{columnName column} <= {pn}", [pn, value], scope
     | In (column, values) ->
         match values with
         | SimpleList values ->
